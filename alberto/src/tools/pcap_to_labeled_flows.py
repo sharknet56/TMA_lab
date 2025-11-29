@@ -23,11 +23,11 @@ from pathlib import Path
 import time
 
 import pandas as pd
-from scapy.all import PcapReader, Ether, IP, IPv6, DLT_LINUX_SLL
+from scapy.all import PcapReader, Ether, IP, IPv6
 from scapy.layers.l2 import CookedLinux
 
 from ..utils.flow_builder import canonical_flow_key, pcap_to_flows
-from ..utils.mac_to_type import load_mac_to_device_type
+from ..utils.mac_to_type import load_mac_to_device_type, normalize_mac
 
 
 def build_flow_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
@@ -79,7 +79,98 @@ def build_flow_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
 
     return flow2type
 
+def build_ip_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
+    """
+    First pass: read packets, use MAC addresses to infer device_type per *IP*.
 
+    Returns:
+        dict[ip_str] = device_type
+
+    Also prints debug info about which MACs and IPs were seen and matched.
+    """
+    mac_to_type = load_mac_to_device_type(mac_csv_path)
+    mac_keys = set(mac_to_type.keys())
+    print(f"[DEBUG] mac_to_type has {len(mac_keys)} entries")
+
+    ip2type: dict[str, str] = {}
+    seen_macs: set[str] = set()
+    matched_macs: set[str] = set()
+    seen_ips: set[str] = set()
+
+    with PcapReader(pcap_path) as pcap:
+        for pkt in pcap:
+            # For Linux cooked captures, Ether is usually None, CookedLinux present
+            link = pkt.getlayer(Ether) or pkt.getlayer(CookedLinux)
+            ip = pkt.getlayer(IP) or pkt.getlayer(IPv6)
+
+            if link is None or ip is None:
+                continue
+
+            # CookedLinux only has a single 'src' address; Ether has src/dst
+            smac = getattr(link, "src", None)
+            dmac = getattr(link, "dst", None)
+            #print(smac)
+
+            if smac is not None:
+                smac = normalize_mac(smac)
+                #print(smac)
+                seen_macs.add(smac)
+            if dmac is not None:
+                dmac = normalize_mac(dmac)
+                seen_macs.add(dmac)
+
+            dev_type = None
+            if smac in mac_to_type:
+                dev_type = mac_to_type[smac]
+                matched_macs.add(smac)
+            elif dmac in mac_to_type:
+                dev_type = mac_to_type[dmac]
+                matched_macs.add(dmac)
+            
+            if dev_type is None:
+                continue
+
+            src_match = smac in mac_to_type if smac is not None else False
+            dst_match = dmac in mac_to_type if dmac is not None else False
+
+            if src_match:
+                dev_type = mac_to_type[smac]
+                matched_macs.add(smac)
+            elif dst_match:
+                dev_type = mac_to_type[dmac]
+                matched_macs.add(dmac)
+
+            if dev_type is None:
+                continue
+
+            # Any IPs we see in this packet are associated with that dev_type
+            if getattr(ip, "src", None):
+                seen_ips.add(ip.src)
+                ip2type.setdefault(ip.src, dev_type)
+            if getattr(ip, "dst", None):
+                seen_ips.add(ip.dst)
+                ip2type.setdefault(ip.dst, dev_type)
+
+    # ---- debug report ----
+    print(f"[DEBUG] Unique MACs seen in PCAP: {len(seen_macs)}")
+    print(f"[DEBUG] Unique MACs that matched CSV: {len(matched_macs)}")
+    if matched_macs:
+        print(f"[DEBUG] Example matched MACs: {list(sorted(matched_macs))[:10]}")
+    else:
+        print("[DEBUG] No MACs in the capture matched the CSV keys.")
+
+    print(f"[DEBUG] Unique IPs seen (any): {len(seen_ips)}")
+    print(f"[DEBUG] IPs mapped to device_type: {len(ip2type)}")
+    if ip2type:
+        example_items = list(ip2type.items())[:10]
+        print("[DEBUG] Example IP→type mappings:")
+        for ip, t in example_items:
+            print(f"    {ip} -> {t}")
+
+    return ip2type
+
+
+'''
 def extract_labeled_flows(pcap_path: str, mac_csv_path: str) -> pd.DataFrame:
     """
     Full pipeline:
@@ -102,6 +193,36 @@ def extract_labeled_flows(pcap_path: str, mac_csv_path: str) -> pd.DataFrame:
         flows.append(flow)
 
     return pd.DataFrame(flows)
+'''
+
+def extract_labeled_flows(pcap_path: str, mac_csv_path: str) -> pd.DataFrame:
+    ip2type = build_ip_to_type_map(pcap_path, mac_csv_path)
+
+    flows = []
+    labeled = 0
+
+    for flow in pcap_to_flows(pcap_path):
+        src_ip = flow.get("src_ip")
+        dst_ip = flow.get("dst_ip")
+
+        dev_type = "unknown"
+        if src_ip in ip2type:
+            dev_type = ip2type[src_ip]
+        elif dst_ip in ip2type:
+            dev_type = ip2type[dst_ip]
+
+        if dev_type != "unknown":
+            labeled += 1
+
+        flow["device_type"] = dev_type
+        flows.append(flow)
+
+    total = len(flows)
+    pct = (labeled / total * 100) if total else 0.0
+    print(f"[DEBUG] Labeled {labeled} / {total} flows ({pct:.2f}%)")
+
+    return pd.DataFrame(flows)
+
 
 
 def process_single_pcap(pcap_path: Path, mac_csv: str, out_csv: Path | None = None):

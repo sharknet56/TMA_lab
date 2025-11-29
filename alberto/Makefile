@@ -31,7 +31,7 @@ flows:
 # 2) EDA on raw pcap
 .PHONY: pcap-eda
 pcap-eda:
-	$(VENV)/bin.python -m src.tools.plotting.pcap_eda \
+	$(VENV)/bin/python -m src.tools.plotting.pcap_eda \
 	  --pcap $(PCAP) \
 	  --mac-csv $(MAC_CSV) \
 	  --outdir $(OUTDIR)
