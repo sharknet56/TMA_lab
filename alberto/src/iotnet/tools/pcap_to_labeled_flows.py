@@ -1,43 +1,42 @@
-#!/usr/bin/env python3
 """
-src/tools/pcap_to_labeled_flows.py
+src/iotnet/tools/pcap_to_labeled_flows.py
 
 Extract labeled flows from PCAP(s) using MAC→device_type mapping.
 
-Single file mode:
-    python -m src.tools.pcap_to_labeled_flows \
-        --pcap dataset/pcapIoT/foo.pcap \
-        --mac-csv dataset/CSVs/macAddresses.csv
+Core functionality:
 
-Batch mode (all .pcap in a directory, non-recursive):
-    python -m src.tools.pcap_to_labeled_flows \
-        --pcap-dir dataset/pcapIoT \
-        --mac-csv dataset/CSVs/macAddresses.csv
+    - build_ip_to_type_map(pcap_path, mac_csv_path)
+    - extract_labeled_flows(pcap_path, mac_csv_path) -> pd.DataFrame
+    - process_single_pcap(pcap_path, mac_csv, out_csv=None)
+    - process_pcap_directory(pcap_dir, mac_csv)
 
-Outputs (default):
+By default, outputs are written to:
     outputs/<pcap_name>/flows_labeled.csv
 """
 
-import argparse
+from __future__ import annotations
+
 from pathlib import Path
 import time
+from typing import Dict
 
 import pandas as pd
 from scapy.all import PcapReader, Ether, IP, IPv6
 from scapy.layers.l2 import CookedLinux
 
-from ..utils.flow_builder import canonical_flow_key, pcap_to_flows
-from ..utils.mac_to_type import load_mac_to_device_type, normalize_mac
+from src.iotnet.utils.flow_builder import canonical_flow_key, pcap_to_flows
+from src.iotnet.utils.mac_to_type import load_mac_to_device_type, normalize_mac
 
 
-def build_flow_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
+def build_flow_to_type_map(pcap_path: str, mac_csv_path: str) -> Dict[tuple, str]:
     """
     First pass: read packets, use MAC addresses to infer device_type per flow key.
+
     Returns:
         dict[(src_ip, src_port, dst_ip, dst_port, proto)] = device_type
     """
     mac_to_type = load_mac_to_device_type(mac_csv_path)
-    flow2type = {}
+    flow2type: Dict[tuple, str] = {}
 
     with PcapReader(pcap_path) as pcap:
         for pkt in pcap:
@@ -55,10 +54,6 @@ def build_flow_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
             smac = smac.lower()
             dmac = dmac.lower()
 
-            #smac = link.src.lower()
-            #dmac = link.dst.lower()
-
-            # determine if either endpoint is an IoT device
             dev_type = None
             if smac in mac_to_type:
                 dev_type = mac_to_type[smac]
@@ -68,18 +63,17 @@ def build_flow_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
             if dev_type is None:
                 continue
 
-            # extract transport info
             sport = getattr(pkt, "sport", 0)
             dport = getattr(pkt, "dport", 0)
             proto = ip.proto if isinstance(ip, IP) else ip.nh
 
             key = canonical_flow_key(ip.src, sport, ip.dst, dport, proto)
-            # if multiple MACs map to same flow, last one wins (usually fine)
             flow2type[key] = dev_type
 
     return flow2type
 
-def build_ip_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
+
+def build_ip_to_type_map(pcap_path: str, mac_csv_path: str) -> Dict[str, str]:
     """
     First pass: read packets, use MAC addresses to infer device_type per *IP*.
 
@@ -92,58 +86,45 @@ def build_ip_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
     mac_keys = set(mac_to_type.keys())
     print(f"[DEBUG] mac_to_type has {len(mac_keys)} entries")
 
-    ip2type: dict[str, str] = {}
+    ip2type: Dict[str, str] = {}
     seen_macs: set[str] = set()
     matched_macs: set[str] = set()
     seen_ips: set[str] = set()
 
     with PcapReader(pcap_path) as pcap:
         for pkt in pcap:
-            # For Linux cooked captures, Ether is usually None, CookedLinux present
             link = pkt.getlayer(Ether) or pkt.getlayer(CookedLinux)
             ip = pkt.getlayer(IP) or pkt.getlayer(IPv6)
 
             if link is None or ip is None:
                 continue
 
-            # CookedLinux only has a single 'src' address; Ether has src/dst
             smac = getattr(link, "src", None)
             dmac = getattr(link, "dst", None)
-            #print(smac)
 
             if smac is not None:
-                smac = normalize_mac(smac)
-                #print(smac)
-                seen_macs.add(smac)
+                smac_n = normalize_mac(smac)
+                seen_macs.add(smac_n)
+            else:
+                smac_n = None
+
             if dmac is not None:
-                dmac = normalize_mac(dmac)
-                seen_macs.add(dmac)
+                dmac_n = normalize_mac(dmac)
+                seen_macs.add(dmac_n)
+            else:
+                dmac_n = None
 
             dev_type = None
-            if smac in mac_to_type:
-                dev_type = mac_to_type[smac]
-                matched_macs.add(smac)
-            elif dmac in mac_to_type:
-                dev_type = mac_to_type[dmac]
-                matched_macs.add(dmac)
-            
-            if dev_type is None:
-                continue
-
-            src_match = smac in mac_to_type if smac is not None else False
-            dst_match = dmac in mac_to_type if dmac is not None else False
-
-            if src_match:
-                dev_type = mac_to_type[smac]
-                matched_macs.add(smac)
-            elif dst_match:
-                dev_type = mac_to_type[dmac]
-                matched_macs.add(dmac)
+            if smac_n is not None and smac_n in mac_to_type:
+                dev_type = mac_to_type[smac_n]
+                matched_macs.add(smac_n)
+            elif dmac_n is not None and dmac_n in mac_to_type:
+                dev_type = mac_to_type[dmac_n]
+                matched_macs.add(dmac_n)
 
             if dev_type is None:
                 continue
 
-            # Any IPs we see in this packet are associated with that dev_type
             if getattr(ip, "src", None):
                 seen_ips.add(ip.src)
                 ip2type.setdefault(ip.src, dev_type)
@@ -170,32 +151,16 @@ def build_ip_to_type_map(pcap_path: str, mac_csv_path: str) -> dict:
     return ip2type
 
 
-'''
 def extract_labeled_flows(pcap_path: str, mac_csv_path: str) -> pd.DataFrame:
     """
     Full pipeline:
-    - Build flow→device_type map via MACs
+    - Build IP→device_type map via MACs
     - Run pcap_to_flows
     - Attach device_type to each flow (default: 'unknown')
+
+    Returns:
+        DataFrame with one row per flow, including 'device_type'.
     """
-    flow2type = build_flow_to_type_map(pcap_path, mac_csv_path)
-
-    flows = []
-    for flow in pcap_to_flows(pcap_path):
-        key = canonical_flow_key(
-            flow["src_ip"],
-            flow["src_port"],
-            flow["dst_ip"],
-            flow["dst_port"],
-            flow["proto"],
-        )
-        flow["device_type"] = flow2type.get(key, "unknown")
-        flows.append(flow)
-
-    return pd.DataFrame(flows)
-'''
-
-def extract_labeled_flows(pcap_path: str, mac_csv_path: str) -> pd.DataFrame:
     ip2type = build_ip_to_type_map(pcap_path, mac_csv_path)
 
     flows = []
@@ -224,14 +189,17 @@ def extract_labeled_flows(pcap_path: str, mac_csv_path: str) -> pd.DataFrame:
     return pd.DataFrame(flows)
 
 
-
-def process_single_pcap(pcap_path: Path, mac_csv: str, out_csv: Path | None = None):
+def process_single_pcap(pcap_path: Path, mac_csv: str, out_csv: Path | None = None) -> None:
     """
     Process one PCAP and write flows_labeled.csv to the appropriate place.
-    If out_csv is None, use: outputs/<pcap_name>/flows_labeled.csv
+
+    Args:
+        pcap_path: Path to input PCAP.
+        mac_csv: Path to macAddresses.csv for MAC→device_type mapping.
+        out_csv: Optional explicit output CSV path.
+                 If None: outputs/<pcap_name>/flows_labeled.csv
     """
     pcap_name = pcap_path.stem
-
     start = time.time()
 
     if out_csv is None:
@@ -249,51 +217,26 @@ def process_single_pcap(pcap_path: Path, mac_csv: str, out_csv: Path | None = No
     print(f"[{pcap_name}] Saved {len(df)} labeled flows to {out_csv} (elapsed: {elapsed:.2f}s)")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Extract labeled flows from PCAP(s).")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--pcap", help="Path to a single PCAP file")
-    group.add_argument("--pcap-dir", help="Directory containing PCAP files (batch mode)")
+def process_pcap_directory(pcap_dir: Path, mac_csv: str) -> None:
+    """
+    Process all *.pcap files in a directory (non-recursive) and
+    write a flows_labeled.csv for each.
 
-    parser.add_argument("--mac-csv", required=True, help="Path to macAddresses.csv")
-    parser.add_argument(
-        "--out",
-        help=(
-            "Output CSV path (only valid in single-file mode). "
-            "In batch mode, outputs always go to outputs/<pcap_name>/flows_labeled.csv"
-        ),
-    )
+    Outputs:
+        outputs/<pcap_name>/flows_labeled.csv per PCAP.
+    """
+    if not pcap_dir.is_dir():
+        raise SystemExit(f"{pcap_dir} is not a directory")
 
-    args = parser.parse_args()
+    pcaps = sorted(p for p in pcap_dir.iterdir() if p.suffix.lower() == ".pcap")
+    if not pcaps:
+        raise SystemExit(f"No .pcap files found in directory {pcap_dir}")
 
-    if args.pcap:
-        # Single-file mode
-        pcap_path = Path(args.pcap)
-        process_single_pcap(pcap_path, args.mac_csv, args.out)
+    print(f"Found {len(pcaps)} pcap files in {pcap_dir}, processing in batch...")
+    batch_start = time.time()
 
-    else:
-        # Batch mode: all *.pcap in directory (non-recursive)
-        if args.out is not None:
-            raise SystemExit(
-                "--out cannot be used with --pcap-dir. "
-                "Batch mode always writes to outputs/<pcap_name>/flows_labeled.csv."
-            )
+    for pcap_path in pcaps:
+        process_single_pcap(pcap_path, mac_csv=mac_csv, out_csv=None)
 
-        pcap_dir = Path(args.pcap_dir)
-        if not pcap_dir.is_dir():
-            raise SystemExit(f"{pcap_dir} is not a directory")
-
-        pcaps = sorted(p for p in pcap_dir.iterdir() if p.suffix.lower() == ".pcap")
-        if not pcaps:
-            raise SystemExit(f"No .pcap files found in directory {pcap_dir}")
-
-        print(f"Found {len(pcaps)} pcap files in {pcap_dir}, processing in batch...")
-        batch_start = time.time()
-        for pcap_path in pcaps:
-            process_single_pcap(pcap_path, args.mac_csv, out_csv=None)
-        batch_elapsed = time.time() - batch_start
-        print(f"Batch processing completed in {batch_elapsed:.2f}s")
-
-if __name__ == "__main__":
-    main()
-
+    batch_elapsed = time.time() - batch_start
+    print(f"Batch processing completed in {batch_elapsed:.2f}s")

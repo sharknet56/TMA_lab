@@ -1,63 +1,80 @@
-#!/usr/bin/env python3
 """
 aggregate_flows.py
 
 Aggregate multiple flows_labeled.csv files into a single ML-ready dataset.
 
 Assumes directory structure like:
-    outputs/
+    <root>/
         foo/
             flows_labeled.csv
         bar/
             flows_labeled.csv
         ...
 
-Usage examples:
+Core API:
 
-    # Aggregate all flows_labeled.csv under outputs/ into one dataset
-    python -m src.tools.ml.aggregate_flows \
-        --root outputs \
-        --csv-name flows_labeled.csv \
-        --out-prefix aggregated_flows
+    aggregate_flows(
+        root: str | Path,
+        csv_name: str = "flows_labeled.csv",
+        out_prefix: str = "aggregated_flows",
+        skip_unknown: bool = False,
+        outdir: str | Path = "outputs",
+    )
 
-    # Skip flows where device_type == "unknown"
-    python -m src.tools.ml.aggregate_flows \
-        --root outputs \
-        --skip-unknown \
-        --out-prefix aggregated_flows_no_unknown
+This will produce:
+    <outdir>/<out_prefix>.csv
+    <outdir>/<out_prefix>.parquet
+    <outdir>/<out_prefix>_summary.csv
 """
 
-import argparse
+from __future__ import annotations
+
 from pathlib import Path
+from typing import List, Union
 
 import pandas as pd
 
 
 def aggregate_flows(
-    root: str,
+    root: Union[str, Path],
     csv_name: str = "flows_labeled.csv",
     out_prefix: str = "aggregated_flows",
     skip_unknown: bool = False,
-    outdir: str = "outputs",
-):
+    outdir: Union[str, Path] = "outputs",
+) -> None:
     """
-    Aggregate all <csv_name> files under <root>/<pcap_name>/ into:
+    Aggregate all <csv_name> files under <root>/<pcap_name>/ into a single dataset.
+
+    Args:
+        root:
+            Root directory containing per-PCAP subdirectories with flow CSVs.
+        csv_name:
+            Flow CSV filename to look for inside each subdirectory
+            (default: "flows_labeled.csv").
+        out_prefix:
+            Prefix for the output dataset files
+            (default: "aggregated_flows").
+        skip_unknown:
+            If True, drop rows where device_type == "unknown" before aggregating.
+        outdir:
+            Directory to write aggregated outputs to (default: "outputs").
+
+    Produces:
         <outdir>/<out_prefix>.csv
         <outdir>/<out_prefix>.parquet
         <outdir>/<out_prefix>_summary.csv
     """
-
     root_path = Path(root)
     if not root_path.is_dir():
         raise SystemExit(f"{root_path} is not a directory")
 
-    subdirs = [p for p in root_path.iterdir() if p.is_dir()]
+    subdirs: List[Path] = [p for p in root_path.iterdir() if p.is_dir()]
     if not subdirs:
         raise SystemExit(f"No subdirectories found in {root_path}")
 
     print(f"Scanning {len(subdirs)} subdirectories under {root_path} for {csv_name}...")
 
-    dfs = []
+    dfs: List[pd.DataFrame] = []
     for subdir in sorted(subdirs):
         csv_path = subdir / csv_name
         if not csv_path.is_file():
@@ -70,7 +87,8 @@ def aggregate_flows(
             print(f"[ERROR] Failed to read {csv_path}: {e}")
             continue
 
-        pcap_name = subdir.name  # assume subdir name == pcap_name without .pcap
+        # Assume subdir name == pcap_name without .pcap
+        pcap_name = subdir.name
         df["pcap_name"] = pcap_name
         df["source_csv_path"] = str(csv_path)
 
@@ -96,8 +114,10 @@ def aggregate_flows(
     parquet_out = outdir_path / f"{out_prefix}.parquet"
     summary_out = outdir_path / f"{out_prefix}_summary.csv"
 
-    # Save main dataset
+    # Save main dataset (CSV)
     data.to_csv(csv_out, index=False)
+
+    # Save as Parquet if possible
     try:
         data.to_parquet(parquet_out, index=False)
         parquet_status = "OK"
@@ -141,45 +161,3 @@ def aggregate_flows(
     summary_df = pd.DataFrame(summary_rows)
     summary_df.to_csv(summary_out, index=False)
     print(f"Saved summary to: {summary_out}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Aggregate flow CSVs into a single dataset.")
-    parser.add_argument(
-        "--root",
-        default="outputs",
-        help="Root directory containing per-pcap subdirectories with flow CSVs (default: outputs)",
-    )
-    parser.add_argument(
-        "--csv-name",
-        default="flows_labeled.csv",
-        help="Flow CSV filename to look for inside each subdirectory (default: flows_labeled.csv)",
-    )
-    parser.add_argument(
-        "--out-prefix",
-        default="aggregated_flows",
-        help="Prefix for output dataset files (default: aggregated_flows)",
-    )
-    parser.add_argument(
-        "--outdir",
-        default="outputs",
-        help="Directory to write aggregated outputs to (default: outputs)",
-    )
-    parser.add_argument(
-        "--skip-unknown",
-        action="store_true",
-        help="If set, drop rows where device_type == 'unknown' before aggregating",
-    )
-
-    args = parser.parse_args()
-    aggregate_flows(
-        root=args.root,
-        csv_name=args.csv_name,
-        out_prefix=args.out_prefix,
-        skip_unknown=args.skip_unknown,
-        outdir=args.outdir,
-    )
-
-
-if __name__ == "__main__":
-    main()

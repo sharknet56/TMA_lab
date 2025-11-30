@@ -1,3 +1,4 @@
+# TODO: ALL IS OUTDATED, USE MAKEFILE AND "python -m src.iotnet.cli --help" for  understanding
 ## Environment
 
 ```sh

@@ -1,13 +1,21 @@
 # ---- CONFIG ----
-PYTHON := python
-VENV    = .venv
-MAC_CSV = dataset/CSVs/macAddresses.csv
+PYTHON  := $(VENV)/bin/python
+VENV    := .venv
+
+MAC_CSV := dataset/CSVs/macAddresses.csv
 PCAP_DIR ?= dataset/pcapIoT
 OUTDIR  ?= outputs
 CSV_NAME ?= flows_labeled.csv
 
-# Default PCAP (can be overridden: make flows PCAP=...)
+# Default PCAP (can be overridden: make pipeline PCAP=...)
 PCAP ?= $(PCAP_DIR)/52093085_IoT_2023-07-12.pcap
+
+# Aggregated dataset name (prefix without extension)
+AGG_PREFIX ?= aggregated_flows_known
+AGG_DATASET ?= $(OUTDIR)/$(AGG_PREFIX).parquet
+
+# All supported ML models (see train_baseline._make_model)
+MODELS := rf et gb hgb mlp logreg
 
 # ---- ENV / INSTALL ----
 
@@ -20,78 +28,113 @@ install:
 	$(VENV)/bin/pip install -r requirements.txt
 
 # ---- SINGLE-PCAP WORKFLOW ----
+# This is useful for quick dev/debug on one capture.
 
-# 1) Generate labeled flows for a single pcap
+# 1) Generate labeled flows for a single PCAP
 .PHONY: flows
 flows:
-	$(VENV)/bin/python -m src.tools.pcap_to_labeled_flows \
-	  --pcap $(PCAP) \
+	$(PYTHON) -m src.iotnet.cli pcap labeled-flows \
+	  $(PCAP) \
 	  --mac-csv $(MAC_CSV)
 
-# 2) EDA on raw pcap
+# 2) EDA on raw PCAP
 .PHONY: pcap-eda
 pcap-eda:
-	$(VENV)/bin/python -m src.tools.plotting.pcap_eda \
-	  --pcap $(PCAP) \
+	$(PYTHON) -m src.iotnet.cli pcap-eda run \
+	  $(PCAP) \
 	  --mac-csv $(MAC_CSV) \
 	  --outdir $(OUTDIR)
 
-# 3) EDA on flows for that pcap
+# 3) EDA on flows for that PCAP
 .PHONY: flows-eda
 flows-eda:
-	$(VENV)/bin/python -m src.tools.plotting.flows_eda \
-	  --csv $(OUTDIR)/$(notdir $(basename $(PCAP)))/flows_labeled.csv \
-	  --pcap-name $(PCAP) \
-	  --outdir $(OUTDIR)
+	$(PYTHON) -m src.iotnet.cli flows eda \
+	  $(OUTDIR)/$(notdir $(basename $(PCAP)))/flows_labeled.csv \
+	  --outdir $(OUTDIR)/eda/flows
 
-# Convenience: run full pipeline for a single pcap
+# Convenience: run full pipeline for a single PCAP (flows + EDA on PCAP + EDA on flows)
 .PHONY: pipeline
 pipeline: flows pcap-eda flows-eda
 
-# ---- BATCH MODES ----
+# Tiny ML experiment on the aggregated dataset (subsampled)
+.PHONY: train-small
+train-small:
+	$(PYTHON) -m src.iotnet.cli ml train \
+	  $(AGG_DATASET) \
+	  --model rf \
+	  --max-rows 50000 \
+	  --exp-name rf_small_experiment \
+	  --outdir $(OUTDIR)
 
-# Generate labeled flows for all pcaps in a directory
+# ---- BATCH MODES ----
+# Batch flows/EDA/aggregation over all PCAPs in $(PCAP_DIR)
+
+# Generate labeled flows for all PCAPs in a directory
 .PHONY: batch-flows
 batch-flows:
-	$(VENV)/bin/python -m src.tools.pcap_to_labeled_flows \
-	  --pcap-dir $(PCAP_DIR) \
+	$(PYTHON) -m src.iotnet.cli pcap labeled-flows-batch \
+	  $(PCAP_DIR) \
 	  --mac-csv $(MAC_CSV)
 
-# EDA for all pcaps in a directory
+# EDA for all PCAPs in a directory
 .PHONY: batch-pcap-eda
 batch-pcap-eda:
-	$(VENV)/bin/python -m src.tools.plotting.pcap_eda \
-	  --pcap-dir $(PCAP_DIR) \
+	$(PYTHON) -m src.iotnet.cli pcap-eda batch \
+	  $(PCAP_DIR) \
 	  --mac-csv $(MAC_CSV) \
 	  --outdir $(OUTDIR)
 
-# EDA for all flow CSVs in outputs/
+# EDA for all flow CSVs in $(OUTDIR)
+# (loop over each subdir containing flows_labeled.csv)
 .PHONY: batch-flows-eda
 batch-flows-eda:
-	$(VENV)/bin/python -m src.tools.plotting.flows_eda \
-	  --csv-dir $(OUTDIR) \
-	  --outdir $(OUTDIR)
+	@for d in $(OUTDIR)/*; do \
+	  if [ -d "$$d" ] && [ -f "$$d/$(CSV_NAME)" ]; then \
+	    echo "Running flows EDA for $$d/$(CSV_NAME)"; \
+	    $(PYTHON) -m src.iotnet.cli flows eda \
+	      "$$d/$(CSV_NAME)" \
+	      --outdir $(OUTDIR)/eda/flows; \
+	  fi; \
+	done
 
 # ---- AGGREGATION + TRAINING ----
 
+# Aggregate all labeled flow CSVs under $(OUTDIR)/<pcap_name>/ into one dataset
 .PHONY: aggregate
 aggregate:
-	$(VENV)/bin/python -m src.tools.ml.aggregate_flows \
-	  --root $(OUTDIR) \
+	$(PYTHON) -m src.iotnet.cli flows aggregate \
+	  $(OUTDIR) \
 	  --csv-name $(CSV_NAME) \
 	  --skip-unknown \
-	  --out-prefix aggregated_flows_known
+	  --out-prefix $(AGG_PREFIX) \
+	  --outdir $(OUTDIR)
 
+# Train a single model (RandomForest by default) on the aggregated dataset
 .PHONY: train
 train:
-	$(VENV)/bin/python -m src.tools.ml.train_baseline \
-	  --dataset $(OUTDIR)/aggregated_flows_known.parquet \
-	  --exp-name rf_on_aggregated
+	$(PYTHON) -m src.iotnet.cli ml train \
+	  $(AGG_DATASET) \
+	  --model rf \
+	  --exp-name rf_on_aggregated \
+	  --outdir $(OUTDIR)
 
-# Convenience: full batch preprocessing (flows + pcap EDA + flows EDA + aggregate), no training
+# Train all supported models (rf, et, gb, hgb, mlp, logreg)
+.PHONY: train-all
+train-all:
+	@for M in $(MODELS); do \
+	  echo "=== Training model: $$M ==="; \
+	  $(PYTHON) -m src.iotnet.cli ml train \
+	    $(AGG_DATASET) \
+	    --model $$M \
+	    --exp-name "$${M}_on_aggregated" \
+	    --outdir $(OUTDIR); \
+	  echo ""; \
+	done
+
+# Convenience: full batch preprocessing (flows + PCAP EDA + flows EDA + aggregate), no training
 .PHONY: batch-prep
 batch-prep: batch-flows batch-pcap-eda batch-flows-eda aggregate
 
-# Convenience: full batch pipeline (flows -> agg -> train)
+# Convenience: full batch pipeline (flows -> EDA -> aggregate -> single RF train)
 .PHONY: batch-all
-batch-all: batch-flows aggregate train
+batch-all: batch-prep train
