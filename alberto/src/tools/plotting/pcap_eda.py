@@ -29,8 +29,9 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 from scapy.all import PcapReader, IP, IPv6, TCP, UDP, Ether
+from scapy.layers.l2 import CookedLinux
 
-from ...utils.mac_to_type import load_mac_to_device_type
+from ...utils.mac_to_type import load_mac_to_device_type, normalize_mac
 
 
 def pcap_basic_eda(pcap_path: str, mac_csv_path: str | None, outdir: str):
@@ -82,22 +83,31 @@ def pcap_basic_eda(pcap_path: str, mac_csv_path: str | None, outdir: str):
                 proto = "non-IP"
             proto_counter[proto] += 1
 
+            # IPs
             ip_layer = pkt.getlayer(IP) or pkt.getlayer(IPv6)
             if ip_layer is not None:
                 src_ip_counter[ip_layer.src] += 1
                 dst_ip_counter[ip_layer.dst] += 1
 
-            ether = pkt.getlayer(Ether)
-            if ether is not None:
-                smac = ether.src.lower()
-                dmac = ether.dst.lower()
-                src_mac_counter[smac] += 1
-                dst_mac_counter[dmac] += 1
+            # MACs: handle Ethernet and Linux cooked (SLL)
+            link = pkt.getlayer(Ether) or pkt.getlayer(CookedLinux)
+            if link is not None:
+                smac = getattr(link, "src", None)
+                dmac = getattr(link, "dst", None)
 
-                for mac in (smac, dmac):
-                    if mac in mac_to_type:
-                        device_type_counter[mac_to_type[mac]] += 1
+                if smac is not None:
+                    smac_n = normalize_mac(smac)
+                    src_mac_counter[smac_n] += 1
+                    if smac_n in mac_to_type:
+                        device_type_counter[mac_to_type[smac_n]] += 1
 
+                if dmac is not None:
+                    dmac_n = normalize_mac(dmac)
+                    dst_mac_counter[dmac_n] += 1
+                    if dmac_n in mac_to_type:
+                        device_type_counter[mac_to_type[dmac_n]] += 1
+
+            # packets per second
             sec = int(ts - first_ts)
             pps[sec] += 1
 
@@ -109,7 +119,7 @@ def pcap_basic_eda(pcap_path: str, mac_csv_path: str | None, outdir: str):
 
         if first_ts is None:
             w.writerow(["error", "no packets in file"])
-            print(f"Saved summary: {summary_csv_path}")
+            print(f"Saved CSV summary: {summary_csv_path}")
             return
 
         duration = last_ts - first_ts
@@ -202,4 +212,21 @@ def main():
         return
 
     # Batch mode
-    pcap_dir = Path(args.pcap-dir)  # OOPS this is invalid; fix to args.pcap_dir
+    pcap_dir = Path(args.pcap_dir)
+    if not pcap_dir.is_dir():
+        raise SystemExit(f"{pcap_dir} is not a directory")
+
+    pcaps = sorted(p for p in pcap_dir.iterdir() if p.suffix.lower() == ".pcap")
+    if not pcaps:
+        raise SystemExit(f"No .pcap files found in directory {pcap_dir}")
+
+    print(f"Found {len(pcaps)} pcap files in {pcap_dir}, running EDA in batch...")
+    batch_start = time.time()
+    for pcap_path in pcaps:
+        process_single_pcap(pcap_path, args.mac_csv, args.outdir)
+    batch_elapsed = time.time() - batch_start
+    print(f"Batch PCAP EDA completed in {batch_elapsed:.2f}s")
+
+
+if __name__ == "__main__":
+    main()

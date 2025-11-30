@@ -88,6 +88,10 @@ train:
 	  --dataset $(OUTDIR)/aggregated_flows_known.parquet \
 	  --exp-name rf_on_aggregated
 
+# Convenience: full batch preprocessing (flows + pcap EDA + flows EDA + aggregate), no training
+.PHONY: batch-prep
+batch-prep: batch-flows batch-pcap-eda batch-flows-eda aggregate
+
 # Convenience: full batch pipeline (flows -> agg -> train)
 .PHONY: batch-all
 batch-all: batch-flows aggregate train
