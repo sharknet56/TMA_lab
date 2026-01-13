@@ -1,2 +1,7 @@
 .venv/
 backend/__pycache__/
+.archive/
+
+# Datasets (archivos grandes)
+5_dataset_model/archive/*.csv
+*.csv
