@@ -1,0 +1,40 @@
+{
+  "model": {
+    "path": "iot_device_classifier_rf.pkl",
+    "encoder_path": "label_encoder.pkl",
+    "type": "RandomForest",
+    "n_estimators": 50,
+    "max_depth": 15
+  },
+  "categories": {
+    "MULTIMEDIA": {
+      "description": "Dispositivos de streaming, video y audio",
+      "examples": ["Camera", "VideoDoorbell", "Audio", "TV"],
+      "threat_level": "high_bandwidth"
+    },
+    "SMART_CONTROLS": {
+      "description": "Dispositivos de control y automatización",
+      "examples": ["Lighting", "Plug", "Hub", "Motion_Sensor"],
+      "threat_level": "iot_control"
+    },
+    "SENSORS": {
+      "description": "Sensores de bajo tráfico",
+      "examples": ["Weather", "AirPurifier", "Scale"],
+      "threat_level": "low_traffic"
+    },
+    "COMPUTING": {
+      "description": "Dispositivos de propósito general",
+      "examples": ["router", "smartphone", "PC"],
+      "threat_level": "general_device"
+    }
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5001,
+    "debug": false
+  },
+  "firewall": {
+    "url": "http://192.168.50.1:5000",
+    "enabled": true
+  }
+}
