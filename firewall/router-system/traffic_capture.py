@@ -21,7 +21,7 @@ PCAP_BUFFER_FILE = '/tmp/traffic_buffer.pcap'
 FLOW_BUFFER_FILE = '/tmp/flow_buffer.json'
 
 # Endpoints del modelo (modificar según tu configuración)
-MODEL_BASE_URL = os.getenv('MODEL_URL', 'http://localhost:8000')
+MODEL_BASE_URL = os.getenv('MODEL_URL', 'http://localhost:5001')
 PCAP_ENDPOINT = f'{MODEL_BASE_URL}/pcap'
 FLOWS_ENDPOINT = f'{MODEL_BASE_URL}/flows'
 
@@ -419,6 +419,8 @@ def export_flows():
             
             # Exportar flow con todas las features
             flow_export = {
+                'SrcIP': flow['src_ip'],  # Agregar IP de origen
+                'DstIP': flow['dst_ip'],  # Agregar IP de destino
                 'SrcPort': flow['src_port'],
                 'DstPort': flow['dst_port'],
                 'Protocol': flow['protocol'],

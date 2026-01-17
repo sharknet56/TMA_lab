@@ -89,10 +89,232 @@ CATEGORY_TO_THREAT = {
     'COMPUTING': 'general_device'
 }
 
-def send_to_firewall(categories):
-    """Enviar categorías al firewall"""
+# Diccionario para rastrear predicciones por dispositivo IP
+# Estructura: {'192.168.1.10': {'MULTIMEDIA': 5, 'COMPUTING': 2, ...}}
+device_predictions = {}
+
+# Set para trackear flows ya procesados (evitar duplicados)
+# Usamos una tupla de (src_ip, dst_ip, src_port, dst_port, protocol, start_time) como identificador
+processed_flows = set()
+MAX_PROCESSED_FLOWS = 10000  # Limitar tamaño del set
+
+# Red local detectada dinámicamente
+local_network = None
+
+def create_flow_id(flow):
+    """Crear un identificador único para un flow"""
     try:
-        logger.info(f"Enviando categorías al firewall: {categories}")
+        # Usar características clave del flow para identificarlo
+        src_ip = flow.get('SrcIP', flow.get('src_ip', ''))
+        dst_ip = flow.get('DstIP', flow.get('dst_ip', ''))
+        src_port = flow.get('SrcPort', 0)
+        dst_port = flow.get('DstPort', 0)
+        protocol = flow.get('Protocol', 0)
+        
+        # Crear un hash simple pero efectivo
+        return f"{src_ip}:{src_port}->{dst_ip}:{dst_port}:{protocol}"
+    except Exception as e:
+        logger.warning(f"Error creando flow ID: {e}")
+        return None
+
+def is_flow_processed(flow):
+    """Verificar si un flow ya fue procesado"""
+    flow_id = create_flow_id(flow)
+    if flow_id is None:
+        return False
+    return flow_id in processed_flows
+
+def mark_flow_as_processed(flow):
+    """Marcar un flow como procesado"""
+    global processed_flows
+    flow_id = create_flow_id(flow)
+    if flow_id:
+        processed_flows.add(flow_id)
+        
+        # Limitar el tamaño del set
+        if len(processed_flows) > MAX_PROCESSED_FLOWS:
+            # Eliminar los primeros 1000 elementos (los más antiguos)
+            processed_flows = set(list(processed_flows)[1000:])
+
+def detect_local_network():
+    """Detectar la red local dinámicamente desde las IPs del router"""
+    global local_network
+    try:
+        import socket
+        import netifaces
+        import ipaddress
+        
+        # Recopilar todas las redes privadas
+        private_networks = []
+        
+        for interface in netifaces.interfaces():
+            addrs = netifaces.ifaddresses(interface)
+            if netifaces.AF_INET in addrs:
+                for addr_info in addrs[netifaces.AF_INET]:
+                    ip = addr_info.get('addr', '')
+                    netmask = addr_info.get('netmask', '')
+                    
+                    # Skip localhost
+                    if ip.startswith('127.'):
+                        continue
+                    
+                    # Buscar red privada (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+                    if ip.startswith('192.168.') or ip.startswith('10.') or (ip.startswith('172.') and 16 <= int(ip.split('.')[1]) <= 31):
+                        # Calcular la red
+                        network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                        private_networks.append((interface, ip, str(network)))
+        
+        # Priorizar redes 192.168.50.x (la red del AP)
+        for iface, ip, network in private_networks:
+            if '192.168.50.' in network:
+                local_network = network
+                logger.info(f"Red local detectada (AP): {local_network} en interfaz {iface}")
+                return local_network
+        
+        # Si no encuentra 192.168.50, usar la primera red privada no-localhost
+        if private_networks:
+            iface, ip, network = private_networks[0]
+            local_network = network
+            logger.info(f"Red local detectada: {local_network} en interfaz {iface}")
+            return local_network
+        
+    except Exception as e:
+        logger.warning(f"No se pudo detectar la red local automáticamente: {e}")
+    
+    # Fallback a red por defecto
+    local_network = '192.168.50.0/24'
+    logger.info(f"Usando red local por defecto: {local_network}")
+    
+    return local_network
+
+def is_local_ip(ip):
+    """Verificar si una IP pertenece a la red local"""
+    global local_network
+    
+    if local_network is None:
+        detect_local_network()
+    
+    try:
+        import ipaddress
+        ip_obj = ipaddress.IPv4Address(ip)
+        network_obj = ipaddress.IPv4Network(local_network, strict=False)
+        return ip_obj in network_obj
+    except Exception as e:
+        logger.warning(f"Error validando IP local {ip}: {e}")
+        return False
+
+def is_valid_ip(ip):
+    """Verificar si una IP es válida y no es 0.0.0.0 ni el router"""
+    if not ip or ip == '0.0.0.0':
+        return False
+    
+    # Filtrar IP del router/gateway (normalmente .1)
+    # Detectar si es la IP del gateway de la red local
+    try:
+        import ipaddress
+        if local_network:
+            network_obj = ipaddress.IPv4Network(local_network, strict=False)
+            # La IP del gateway suele ser la primera IP útil de la red (.1)
+            gateway_ip = str(network_obj.network_address + 1)
+            if ip == gateway_ip:
+                return False
+    except:
+        # Si falla, usar heurística: termina en .1
+        if ip.endswith('.1'):
+            return False
+    
+    try:
+        parts = ip.split('.')
+        if len(parts) != 4:
+            return False
+        return all(0 <= int(part) <= 255 for part in parts)
+    except:
+        return False
+
+def update_device_prediction(ip, category):
+    """Actualizar las predicciones para un dispositivo"""
+    if ip not in device_predictions:
+        device_predictions[ip] = {}
+    
+    if category not in device_predictions[ip]:
+        device_predictions[ip][category] = 0
+    
+    device_predictions[ip][category] += 1
+
+def get_device_category(ip):
+    """Obtener la categoría principal de un dispositivo (por mayoría)"""
+    if ip not in device_predictions:
+        return None
+    
+    predictions = device_predictions[ip]
+    if not predictions:
+        return None
+    
+    # Retornar la categoría con más predicciones
+    return max(predictions.items(), key=lambda x: x[1])[0]
+
+def get_device_stats(ip):
+    """Obtener estadísticas detalladas de predicciones para un dispositivo"""
+    if ip not in device_predictions:
+        return None
+    
+    predictions = device_predictions[ip]
+    total = sum(predictions.values())
+    
+    stats_data = {
+        'total_predictions': total,
+        'main_category': get_device_category(ip),
+        'percentages': {}
+    }
+    
+    for category, count in predictions.items():
+        stats_data['percentages'][category] = round((count / total) * 100, 2)
+    
+    return stats_data
+
+def get_categories_for_firewall():
+    """Obtener categorías agrupadas por dispositivos (una categoría por IP)"""
+    categories = {}
+    
+    for ip in device_predictions:
+        category = get_device_category(ip)
+        if category:
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(ip)
+    
+    return categories
+
+def clear_all_predictions():
+    """Limpiar todas las predicciones de dispositivos"""
+    global device_predictions
+    device_predictions = {}
+    logger.info("Todas las predicciones han sido limpiadas")
+    
+    # También limpiar el firewall
+    try:
+        response = requests.post(
+            f'{FIREWALL_URL}/clear_all',
+            timeout=5
+        )
+        if response.status_code == 200:
+            logger.info("Firewall limpiado exitosamente")
+        else:
+            logger.warning(f"Error limpiando firewall: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error limpiando firewall: {e}")
+
+def send_to_firewall():
+    """Enviar categorías al firewall (basado en categoría principal de cada dispositivo)"""
+    try:
+        # Obtener categorías agrupadas (una por dispositivo)
+        categories = get_categories_for_firewall()
+        
+        if not categories:
+            logger.debug("No hay categorías para enviar al firewall")
+            return False
+        
+        logger.info(f"Enviando categorías al firewall: {dict((k, len(v)) for k, v in categories.items())}")
         
         response = requests.post(
             f'{FIREWALL_URL}/update_categories',
@@ -154,20 +376,38 @@ def predict_device_categories(flows_df):
         flows_df: DataFrame con features de flows
         
     Returns:
-        Dict con IPs y sus categorías predichas
+        Int: número de predicciones realizadas
     """
     global model, label_encoder
     
     if model is None or label_encoder is None:
         logger.error("Modelo no cargado")
-        return {}
+        return 0
     
     try:
-        # Asegurarse de que el DataFrame tiene las columnas correctas
-        # (excluyendo columnas que no son features como 'Type', 'SrcIP', etc.)
-        
         # Obtener IPs antes de eliminarlas
         src_ips = flows_df.get('SrcIP', flows_df.get('src_ip', None))
+        
+        if src_ips is None:
+            logger.warning("No se encontraron IPs de origen en los flows")
+            return 0
+        
+        # Filtrar flows: solo IPs válidas y de la red local
+        valid_indices = []
+        for idx, ip in enumerate(src_ips):
+            ip_str = str(ip)
+            if is_valid_ip(ip_str) and is_local_ip(ip_str):
+                valid_indices.append(idx)
+            else:
+                logger.debug(f"IP descartada (inválida o no local): {ip_str}")
+        
+        if not valid_indices:
+            logger.info("No hay IPs válidas de la red local para clasificar")
+            return 0
+        
+        # Filtrar el DataFrame
+        flows_df = flows_df.iloc[valid_indices].copy()
+        src_ips = src_ips.iloc[valid_indices] if hasattr(src_ips, 'iloc') else [src_ips[i] for i in valid_indices]
         
         # Columnas a eliminar (que no son features)
         cols_to_drop = ['Type', 'SrcIP', 'DstIP', 'src_ip', 'dst_ip', 
@@ -181,31 +421,31 @@ def predict_device_categories(flows_df):
         # Verificar que tenemos las features correctas
         if features.shape[1] != model.n_features_in_:
             logger.warning(f"Número de features incorrecto: {features.shape[1]} vs {model.n_features_in_} esperadas")
-            return {}
+            return 0
         
         # Hacer predicción
         predictions_encoded = model.predict(features)
         predictions = label_encoder.inverse_transform(predictions_encoded)
         
-        # Agrupar por IP y categoría
-        results = {}
-        if src_ips is not None:
-            for ip, category in zip(src_ips, predictions):
-                if category not in results:
-                    results[category] = []
-                if ip not in results[category]:
-                    results[category].append(str(ip))
+        # Actualizar predicciones por dispositivo
+        prediction_count = 0
+        for ip, category in zip(src_ips, predictions):
+            ip_str = str(ip)
+            update_device_prediction(ip_str, category)
+            prediction_count += 1
+            logger.debug(f"Predicción: {ip_str} -> {category}")
         
-        stats['predictions_made'] += len(predictions)
+        stats['predictions_made'] += prediction_count
         stats['last_prediction'] = datetime.now().isoformat()
         
-        return results
+        logger.info(f"{prediction_count} predicciones realizadas para dispositivos locales")
+        return prediction_count
     
     except Exception as e:
         logger.error(f"Error en predicción: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return {}
+        return 0
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -257,20 +497,41 @@ def receive_flows():
         return jsonify({'error': 'Model not loaded'}), 500
     
     flows = request.json['flows']
-    logger.info(f"Flows recibidos: {len(flows)} flows")
+    total_flows = len(flows)
+    logger.info(f"Flows recibidos: {total_flows} flows")
+    
+    # Filtrar flows ya procesados
+    new_flows = []
+    for flow in flows:
+        if not is_flow_processed(flow):
+            new_flows.append(flow)
+            mark_flow_as_processed(flow)
+    
+    logger.info(f"Flows nuevos (no procesados): {len(new_flows)} de {total_flows}")
+    
+    # Si no hay flows nuevos, no hacer nada
+    if not new_flows:
+        logger.info("No hay flows nuevos para procesar")
+        return jsonify({
+            'status': 'processed',
+            'message': 'No new flows to process',
+            'flows_received': total_flows,
+            'new_flows': 0,
+            'predictions_count': 0
+        }), 200
     
     # Actualizar estadísticas
     stats['flows_received'] += 1
     stats['last_flow'] = datetime.now().isoformat()
     
-    # Guardar flows recientes
-    for flow in flows:
+    # Guardar flows recientes (solo los nuevos)
+    for flow in new_flows:
         flow['received_at'] = datetime.now().isoformat()
         recent_flows.insert(0, flow)
     recent_flows = recent_flows[:MAX_RECENT]
     
     # Convertir flows a features
-    flows_df = process_flows_to_features(flows)
+    flows_df = process_flows_to_features(new_flows)
     
     if flows_df is None or flows_df.empty:
         logger.warning("No se pudieron procesar los flows")
@@ -279,37 +540,37 @@ def receive_flows():
             'message': 'Could not process flows'
         }), 400
     
-    # Predecir categorías
-    categories = predict_device_categories(flows_df)
+    # Predecir categorías (ahora retorna número de predicciones)
+    prediction_count = predict_device_categories(flows_df)
     
-    if categories:
-        # Guardar predicciones recientes
-        prediction_record = {
-            'timestamp': datetime.now().isoformat(),
-            'flows_count': len(flows),
-            'categories': categories
-        }
-        recent_predictions.insert(0, prediction_record)
-        recent_predictions = recent_predictions[:MAX_RECENT]
+    if prediction_count > 0:
+        # Enviar al firewall (usa el sistema de categoría única por dispositivo)
+        send_to_firewall()
         
-        # Enviar al firewall
-        send_to_firewall(categories)
+        # Obtener categorías actuales para el response
+        current_categories = get_categories_for_firewall()
         
-        logger.info(f"Predicciones realizadas: {dict((k, len(v)) for k, v in categories.items())}")
+        logger.info(f"Predicciones realizadas: {prediction_count}")
         
         return jsonify({
             'status': 'processed',
             'message': 'Flows analyzed and classified',
-            'flows_analyzed': len(flows),
-            'categories': categories,
-            'predictions_count': sum(len(v) for v in categories.values())
+            'flows_received': total_flows,
+            'new_flows': len(new_flows),
+            'predictions_count': prediction_count,
+            'current_categories': current_categories
         }), 200
     else:
         return jsonify({
             'status': 'processed',
-            'message': 'No predictions made',
-            'flows_analyzed': len(flows)
+            'message': 'No predictions made (no valid local IPs)',
+            'flows_received': total_flows,
+            'new_flows': len(new_flows)
         }), 200
+
+@app.route('/predict', methods=['POST'])
+
+@app.route('/predict', methods=['POST'])
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -348,14 +609,66 @@ def predict():
 @app.route('/stats', methods=['GET'])
 def get_stats():
     """Obtener estadísticas detalladas"""
+    # Preparar estadísticas de dispositivos
+    devices_stats = {}
+    for ip in device_predictions:
+        devices_stats[ip] = get_device_stats(ip)
+    
     return jsonify({
         'stats': stats,
-        'recent_predictions': recent_predictions[:10],
+        'devices': devices_stats,
+        'local_network': local_network,
+        'total_devices': len(device_predictions),
+        'categories_summary': get_categories_for_firewall(),
         'model_info': {
             'loaded': model is not None,
             'n_features': model.n_features_in_ if model else 0,
             'classes': label_encoder.classes_.tolist() if label_encoder else []
         }
+    })
+
+@app.route('/devices', methods=['GET'])
+def get_devices():
+    """Obtener información detallada de todos los dispositivos"""
+    devices_list = []
+    for ip in device_predictions:
+        device_info = get_device_stats(ip)
+        device_info['ip'] = ip
+        devices_list.append(device_info)
+    
+    # Ordenar por total de predicciones
+    devices_list.sort(key=lambda x: x['total_predictions'], reverse=True)
+    
+    return jsonify({
+        'devices': devices_list,
+        'total': len(devices_list)
+    })
+
+@app.route('/device/<ip>', methods=['GET'])
+def get_device_info(ip):
+    """Obtener información detallada de un dispositivo específico"""
+    device_stats = get_device_stats(ip)
+    
+    if device_stats is None:
+        return jsonify({'error': 'Device not found'}), 404
+    
+    device_stats['ip'] = ip
+    return jsonify(device_stats)
+
+@app.route('/clear_predictions', methods=['POST'])
+def clear_predictions():
+    """Limpiar todas las predicciones de dispositivos"""
+    global processed_flows
+    
+    clear_all_predictions()
+    processed_flows = set()  # También limpiar el set de flows procesados
+    
+    logger.info("Predicciones y flows procesados limpiados por solicitud del usuario")
+    
+    return jsonify({
+        'status': 'success',
+        'message': 'All predictions cleared',
+        'timestamp': datetime.now().isoformat()
     })
 
 @app.route('/recent_flows', methods=['GET'])
@@ -503,17 +816,99 @@ def dashboard():
             </div>
             
             <div class="section">
+                <h2>Dispositivos Clasificados</h2>
+                <p>Red Local: <span id="local-network">-</span></p>
+                <p>Total Dispositivos: <span id="total-devices">0</span></p>
+                <button onclick="clearPredictions()" style="background-color: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-bottom: 15px;">
+                    🗑️ Limpiar Todas las Clasificaciones
+                </button>
+                <div id="devices-table"></div>
+            </div>
+            
+            <div class="section">
                 <h2>API Endpoints</h2>
                 <ul>
                     <li><code>GET /health</code> - Health check</li>
                     <li><code>POST /flows</code> - Recibir flows para clasificación</li>
                     <li><code>POST /pcap</code> - Recibir archivo PCAP</li>
                     <li><code>POST /predict</code> - Predicción directa</li>
-                    <li><code>GET /stats</code> - Estadísticas detalladas</li>
+                    <li><code>GET /stats</code> - Estadísticas detalladas con dispositivos</li>
+                    <li><code>GET /devices</code> - Lista de dispositivos clasificados</li>
+                    <li><code>GET /device/&lt;ip&gt;</code> - Info de dispositivo específico</li>
                     <li><code>GET /recent_flows</code> - Flows recientes</li>
                 </ul>
             </div>
         </div>
+        <script>
+            function refreshDevices() {
+                fetch('/stats')
+                    .then(r => r.json())
+                    .then(data => {
+                        document.getElementById('local-network').textContent = data.local_network || 'Detectando...';
+                        document.getElementById('total-devices').textContent = data.total_devices || 0;
+                        
+                        const devices = data.devices || {};
+                        let tableHTML = '<table style="width:100%; border-collapse: collapse;">';
+                        tableHTML += '<tr style="background-color: #f0f0f0;">';
+                        tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">IP</th>';
+                        tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Categoría Principal</th>';
+                        tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Total Predicciones</th>';
+                        tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Distribución %</th>';
+                        tableHTML += '</tr>';
+                        
+                        Object.keys(devices).forEach(ip => {
+                            const device = devices[ip];
+                            tableHTML += '<tr>';
+                            tableHTML += `<td style="padding: 10px; border: 1px solid #ddd;"><strong>${ip}</strong></td>`;
+                            tableHTML += `<td style="padding: 10px; border: 1px solid #ddd;">${device.main_category}</td>`;
+                            tableHTML += `<td style="padding: 10px; border: 1px solid #ddd;">${device.total_predictions}</td>`;
+                            tableHTML += '<td style="padding: 10px; border: 1px solid #ddd;">';
+                            
+                            Object.keys(device.percentages).sort((a, b) => device.percentages[b] - device.percentages[a]).forEach(category => {
+                                const pct = device.percentages[category];
+                                tableHTML += `<div style="margin: 2px 0;"><span style="display: inline-block; background: #2196F3; color: white; padding: 2px 8px; border-radius: 3px; margin-right: 5px;">${category}</span> ${pct}%</div>`;
+                            });
+                            
+                            tableHTML += '</td>';
+                            tableHTML += '</tr>';
+                        });
+                        
+                        tableHTML += '</table>';
+                        document.getElementById('devices-table').innerHTML = tableHTML;
+                    })
+                    .catch(e => console.error('Error refreshing devices:', e));
+            }
+            
+            function refreshAll() {
+                refreshStats();
+                refreshDevices();
+            }
+            
+            function clearPredictions() {
+                if (!confirm('¿Estás seguro de que quieres limpiar todas las clasificaciones?')) {
+                    return;
+                }
+                
+                fetch('/clear_predictions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(r => r.json())
+                .then(data => {
+                    alert('✅ ' + data.message);
+                    refreshAll();
+                })
+                .catch(e => {
+                    console.error('Error clearing predictions:', e);
+                    alert('❌ Error al limpiar las clasificaciones');
+                });
+            }
+            
+            setInterval(refreshAll, 5000);
+            window.onload = refreshAll;
+        </script>
     </body>
     </html>
     """
@@ -523,6 +918,9 @@ if __name__ == '__main__':
     logger.info("="*70)
     logger.info("Iniciando servidor de clasificación IoT")
     logger.info("="*70)
+    
+    # Detectar red local
+    detect_local_network()
     
     # Cargar modelo
     if load_model():
