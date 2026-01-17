@@ -1,7 +1,9 @@
 .venv/
 backend/__pycache__/
 .archive/
-
+firewall/model_ml/ml
+firewall/model_ml/__pycache__
+firewall/router-system/.venv
 # Datasets (archivos grandes)
 5_dataset_model/archive/*.csv
 *.csv
