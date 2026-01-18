@@ -89,7 +89,7 @@ if [ "$MODEL_TYPE" = "ml_flows" ] || [ "$MODEL_TYPE" = "ml" ]; then
 fi
 
 # Usar entorno virtual unificado para todos los modelos
-"$PROJECT_DIR/venv/bin/python" model_server.py > "$MODEL_LOG" 2>&1 &
+"$PROJECT_DIR/venv/bin/python" model_server.py > "$PROJECT_DIR/$MODEL_LOG" 2>&1 &
 MODEL_PID=$!
 echo "  ✓ Modelo iniciado (PID: $MODEL_PID)"
 
@@ -112,7 +112,7 @@ echo "Iniciando servicios del router..."
 
 # 1. Iniciar firewall_manager
 if [ -f "firewall_manager.py" ]; then
-    sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > $FIREWALL_LOG 2>&1 &
+    sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > "$PROJECT_DIR/$FIREWALL_LOG" 2>&1 &
     FIREWALL_PID=$!
     echo "  ✓ Firewall Manager iniciado (PID: $FIREWALL_PID)"
     sleep 1
@@ -120,7 +120,7 @@ fi
 
 # 2. Iniciar dashboard
 if [ -f "dashboard.py" ]; then
-    sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > $DASHBOARD_LOG 2>&1 &
+    sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > "$PROJECT_DIR/$DASHBOARD_LOG" 2>&1 &
     DASHBOARD_PID=$!
     echo "  ✓ Dashboard iniciado (PID: $DASHBOARD_PID)"
     sleep 1
@@ -128,10 +128,10 @@ fi
 
 # 3. Configurar red y router PRIMERO (hostapd, dnsmasq, iptables)
 echo "  Configurando red..."
-if sudo ./router-control.sh start 2>&1 | tee $ROUTER_LOG | grep -q "ERROR\|Error" && ! grep -q "activado correctamente" $ROUTER_LOG; then
+if sudo ./router-control.sh start 2>&1 | tee "$PROJECT_DIR/$ROUTER_LOG" | grep -q "ERROR\|Error" && ! grep -q "activado correctamente" "$PROJECT_DIR/$ROUTER_LOG"; then
     echo ""
     echo "⚠ Posibles problemas al configurar la red."
-    echo "   Verifica el log: tail -f $ROUTER_LOG"
+    echo "   Verifica el log: tail -f $PROJECT_DIR/$ROUTER_LOG"
 else
     echo "  ✓ Red configurada ($AP_NETWORK)"
 fi
@@ -158,7 +158,7 @@ if ps -p $MODEL_PID > /dev/null; then
     fi
 else
     echo "  ❌ Error: el modelo no está corriendo"
-    echo "  Ver log: tail -f $MODEL_LOG"
+    echo "  Ver log: tail -f $PROJECT_DIR/$MODEL_LOG"
 fi
 
 cd "$PROJECT_DIR/router-system"
@@ -178,7 +178,7 @@ esac
 
 if [ -f "$CAPTURE_SCRIPT" ]; then
     echo "  Iniciando captura de tráfico..."
-    sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > $TRAFFIC_CAPTURE_LOG 2>&1 &
+    sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > "$PROJECT_DIR/$TRAFFIC_CAPTURE_LOG" 2>&1 &
     TRAFFIC_PID=$!
     echo "  ✓ Traffic Capture iniciado (PID: $TRAFFIC_PID, script: $CAPTURE_SCRIPT)"
     sleep 2
@@ -236,10 +236,10 @@ echo "  • Firewall API:           http://localhost:$FIREWALL_PORT/health"
 
 echo ""
 echo "📋 Logs disponibles:"
-echo "  tail -f $MODEL_LOG"
-echo "  tail -f $FIREWALL_LOG"
-echo "  tail -f $DASHBOARD_LOG"
-echo "  tail -f $TRAFFIC_CAPTURE_LOG"
+echo "  tail -f $PROJECT_DIR/$MODEL_LOG"
+echo "  tail -f $PROJECT_DIR/$FIREWALL_LOG"
+echo "  tail -f $PROJECT_DIR/$DASHBOARD_LOG"
+echo "  tail -f $PROJECT_DIR/$TRAFFIC_CAPTURE_LOG"
 
 echo ""
 echo "🔧 Comandos útiles:"

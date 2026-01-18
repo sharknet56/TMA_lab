@@ -51,6 +51,38 @@ else
     echo "⚠ Usando configuración por defecto"
     MODEL_TYPE="ml_flows"
 fi
+echo ""
+echo "=== Verificando directorios de logs ==="
+# Crear directorio de logs si no existe
+if [ ! -d "$PROJECT_DIR/logs" ]; then
+    mkdir -p "$PROJECT_DIR/logs"
+    echo "✓ Directorio logs/ creado"
+else
+    echo "✓ Directorio logs/ ya existe"
+fi
+
+# Crear archivos de log si no existen
+LOG_FILES=(
+    "$MODEL_ML_LOG"
+    "$MODEL_SIMULATED_LOG"
+    "$MODEL_DL_LOG"
+    "$FIREWALL_LOG"
+    "$DASHBOARD_LOG"
+    "$TRAFFIC_CAPTURE_LOG"
+    "$ROUTER_LOG"
+)
+
+for log_file in "${LOG_FILES[@]}"; do
+    if [ ! -z "$log_file" ]; then
+        log_path="$PROJECT_DIR/$log_file"
+        if [ ! -f "$log_path" ]; then
+            touch "$log_path"
+            chmod 644 "$log_path"
+        fi
+    fi
+done
+
+echo "✓ Archivos de log verificados"
 
 # Determinar directorio y puerto del modelo según MODEL_TYPE
 case "$MODEL_TYPE" in
@@ -155,7 +187,7 @@ echo "=== 5/6 Iniciando modelo ==="
 cd "$MODEL_DIR"
 
 # Todos los modelos usan el mismo entorno virtual unificado
-"$PROJECT_DIR/venv/bin/python" model_server.py > "$MODEL_LOG" 2>&1 &
+"$PROJECT_DIR/venv/bin/python" model_server.py > "$PROJECT_DIR/$MODEL_LOG" 2>&1 &
 MODEL_PID=$!
 
 echo "✓ Modelo iniciado (PID: $MODEL_PID, puerto: $MODEL_PORT)"
@@ -166,7 +198,7 @@ if ps -p $MODEL_PID > /dev/null; then
     echo "✓ Modelo corriendo correctamente"
 else
     echo "❌ Error: el modelo no está corriendo"
-    echo "Ver log: tail -f $MODEL_LOG"
+    echo "Ver log: tail -f $PROJECT_DIR/$MODEL_LOG"
     exit 1
 fi
 
@@ -203,10 +235,10 @@ echo "  • Firewall API:           http://localhost:$FIREWALL_PORT/health"
 
 echo ""
 echo "📋 Logs disponibles:"
-echo "  tail -f $MODEL_LOG"
-echo "  tail -f $FIREWALL_LOG"
-echo "  tail -f $DASHBOARD_LOG"
-echo "  tail -f $TRAFFIC_CAPTURE_LOG"
+echo "  tail -f $PROJECT_DIR/$MODEL_LOG"
+echo "  tail -f $PROJECT_DIR/$FIREWALL_LOG"
+echo "  tail -f $PROJECT_DIR/$DASHBOARD_LOG"
+echo "  tail -f $PROJECT_DIR/$TRAFFIC_CAPTURE_LOG"
 
 echo ""
 echo "🔧 Comandos útiles:"
