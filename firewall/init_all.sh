@@ -1,24 +1,20 @@
 #!/bin/bash
 # Script para inicializar todo el sistema desde cero
-# Uso: sudo ./init_all.sh [simulated] [--reinstall]
-# Por defecto usa model_ml, con argumento 'simulated' usa simulated-model
+# Uso: sudo ./init_all.sh [--reinstall]
+# Lee configuración desde .env
 # --reinstall: Fuerza reinstalación del router-system
 
 # Verificar que se ejecuta como root
 if [ "$EUID" -ne 0 ]; then 
     echo "❌ Este script debe ejecutarse con sudo"
-    echo "Uso: sudo ./init_all.sh [simulated] [--reinstall]"
+    echo "Uso: sudo ./init_all.sh [--reinstall]"
     exit 1
 fi
 
-# Determinar qué modelo usar y opciones
-MODEL_TYPE=${1:-ml}
+# Opciones
 FORCE_REINSTALL=false
-
 for arg in "$@"; do
-    if [ "$arg" = "simulated" ]; then
-        MODEL_TYPE="simulated"
-    elif [ "$arg" = "--reinstall" ]; then
+    if [ "$arg" = "--reinstall" ]; then
         FORCE_REINSTALL=true
     fi
 done
@@ -32,29 +28,67 @@ echo "║   Inicialización completa del sistema      ║"
 echo "╚════════════════════════════════════════════╝"
 echo ""
 
-if [ "$MODEL_TYPE" = "simulated" ]; then
-    MODEL_DIR="$PROJECT_DIR/simulated-model"
-    MODEL_PORT=8000
-    echo "📦 Modelo: simulated-model (puerto $MODEL_PORT)"
+echo ""
+echo "=== 1/6 Preparando configuración ==="
+# Copiar .env.example a .env si no existe
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+    if [ -f "$PROJECT_DIR/.env.example" ]; then
+        cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
+        echo "✓ Archivo .env creado desde .env.example"
+    else
+        echo "⚠ Advertencia: .env.example no encontrado"
+    fi
 else
-    MODEL_DIR="$PROJECT_DIR/model_ml"
-    MODEL_PORT=5001
-    echo "🤖 Modelo: model_ml (puerto $MODEL_PORT)"
+    echo "✓ Archivo .env ya existe"
 fi
 
+# Leer configuración desde .env
+if [ -f "$PROJECT_DIR/.env" ]; then
+    source "$PROJECT_DIR/.env"
+    echo "✓ Configuración leída desde .env"
+    echo "  Modelo: $MODEL_TYPE"
+else
+    echo "⚠ Usando configuración por defecto"
+    MODEL_TYPE="ml_flows"
+fi
+
+# Determinar directorio y puerto del modelo según MODEL_TYPE
+case "$MODEL_TYPE" in
+    "ml_flows"|"ml")
+        MODEL_DIR="$PROJECT_DIR/model_ml"
+        MODEL_PORT=5001
+        MODEL_LOG="/tmp/model_server.log"
+        ;;
+    "simulated_flows"|"simulated")
+        MODEL_DIR="$PROJECT_DIR/simulated-model"
+        MODEL_PORT=8000
+        MODEL_LOG="/tmp/model.log"
+        ;;
+    "dl_packets")
+        MODEL_DIR="$PROJECT_DIR/model_dl"
+        MODEL_PORT=5002
+        MODEL_LOG="/tmp/model_dl.log"
+        ;;
+    *)
+        echo "⚠ MODEL_TYPE desconocido: $MODEL_TYPE, usando ml_flows"
+        MODEL_DIR="$PROJECT_DIR/model_ml"
+        MODEL_PORT=5001
+        MODEL_LOG="/tmp/model_server.log"
+        ;;
+esac
+
+echo "  Directorio: $MODEL_DIR"
+echo "  Puerto: $MODEL_PORT"
+
 echo ""
-echo "=== 1/5 Limpiando sistema anterior ==="
-# Detener servicios existentes
-sudo pkill -9 -f "python3 dashboard.py" 2>/dev/null
-sudo pkill -9 -f "python3 firewall_manager.py" 2>/dev/null
-sudo pkill -9 -f "python model_server.py" 2>/dev/null
-pkill -9 -f "python3 model_server.py" 2>/dev/null
-pkill -9 -f "python3 traffic_capture.py" 2>/dev/null
+echo "=== 2/6 Limpiando sistema anterior ==="
+# Llamar a stop_all.sh para detener servicios
+"$PROJECT_DIR/stop_all.sh" 2>/dev/null || true
 
 # Detener router si existe
 if [ -f "$PROJECT_DIR/router-system/router-control.sh" ]; then
     cd "$PROJECT_DIR/router-system"
-    sudo ./router-control.sh stop 2>/dev/null
+    sudo ./router-control.sh stop 2>/dev/null || true
 fi
 
 # Limpiar directorio de configuración
@@ -66,40 +100,35 @@ fi
 sudo rm -f /var/run/hostapd.pid /var/run/dnsmasq.pid
 
 # Limpiar logs
-sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log
+sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log /tmp/traffic_capture.log
 sudo rm -f /var/log/hostapd.log /var/log/dnsmasq.log
 sudo rm -f /var/log/firewall_manager.log /var/log/traffic_capture.log /var/log/dashboard.log
 
 echo "✓ Sistema limpio"
-sleep 2
-
-echo ""
-echo "=== 2/5 Instalando dependencias del modelo ==="
-cd "$MODEL_DIR"
-
-if [ "$MODEL_TYPE" = "simulated" ]; then
-    # Para simulated-model, instalar dependencias del sistema
-    if [ -f "requirements.txt" ]; then
-        echo "Instalando paquetes Python..."
-        pip3 install -q -r requirements.txt
-        echo "✓ Dependencias instaladas"
-    fi
-else
-    # Para model_ml, verificar/crear entorno virtual
-    if [ ! -d "ml" ]; then
-        echo "Creando entorno virtual..."
-        python3 -m venv ml
-    fi
-    
-    echo "Instalando dependencias en entorno virtual..."
-    ./ml/bin/pip install -q -r requirements.txt
-    echo "✓ Entorno virtual configurado"
-fi
-
 sleep 1
 
 echo ""
-echo "=== 3/5 Verificando router-system ==="
+echo "=== 3/6 Configurando entorno virtual unificado ==="
+
+# Crear entorno virtual único para todo firewall
+if [ ! -d "$PROJECT_DIR/venv" ]; then
+    echo "Creando entorno virtual en $PROJECT_DIR/venv..."
+    python3 -m venv "$PROJECT_DIR/venv"
+    echo "✓ Entorno virtual creado"
+else
+    echo "✓ Entorno virtual ya existe"
+fi
+
+# Instalar dependencias desde requirements.txt unificado
+echo "Instalando dependencias desde requirements.txt..."
+"$PROJECT_DIR/venv/bin/pip" install --upgrade pip -q
+"$PROJECT_DIR/venv/bin/pip" install -r "$PROJECT_DIR/requirements.txt" -q
+
+echo "✓ Dependencias instaladas"
+sleep 1
+
+echo ""
+echo "=== 4/6 Verificando router-system ==="
 cd "$PROJECT_DIR/router-system"
 
 # Verificar si ya está instalado
@@ -133,8 +162,8 @@ else
         {
             echo "$INTERNET_IFACE"
             echo "$AP_IFACE"
-            echo "RouterFirewall"
-            echo "SecurePass123"
+            echo "$WIFI_SSID"
+            echo "$WIFI_PASSWORD"
             echo "http://localhost:$MODEL_PORT/pcap"
             echo "http://localhost:$MODEL_PORT/flows"
         } | sudo ./install.sh 2>&1 | grep -v "^read:"
@@ -147,18 +176,13 @@ fi
 sleep 2
 
 echo ""
-echo "=== 4/5 Iniciando modelo ==="
+echo "=== 5/6 Iniciando modelo ==="
 cd "$MODEL_DIR"
 
-if [ "$MODEL_TYPE" = "simulated" ]; then
-    MODEL_LOG="/tmp/model.log"
-    python3 model_server.py > "$MODEL_LOG" 2>&1 &
-else
-    MODEL_LOG="/tmp/model_server.log"
-    ./ml/bin/python model_server.py > "$MODEL_LOG" 2>&1 &
-fi
-
+# Todos los modelos usan el mismo entorno virtual unificado
+"$PROJECT_DIR/venv/bin/python" model_server.py > "$MODEL_LOG" 2>&1 &
 MODEL_PID=$!
+
 echo "✓ Modelo iniciado (PID: $MODEL_PID, puerto: $MODEL_PORT)"
 sleep 3
 
@@ -172,7 +196,7 @@ else
 fi
 
 echo ""
-echo "=== 5/5 Iniciando router-system ==="
+echo "=== 6/6 Iniciando router-system ==="
 cd "$PROJECT_DIR/router-system"
 sudo ./router-control.sh start
 sleep 5
@@ -187,12 +211,18 @@ ps aux | grep -E "python.*(model_server|firewall_manager|dashboard|traffic_captu
 
 echo ""
 echo "🌐 URLs de acceso:"
-if [ "$MODEL_TYPE" = "simulated" ]; then
-    echo "  • Modelo simulado:        http://localhost:8000"
-else
-    echo "  • Modelo ML:              http://localhost:5001"
-    echo "  • Dashboard del modelo:   http://localhost:5001/"
-fi
+case "$MODEL_TYPE" in
+    "ml_flows"|"ml")
+        echo "  • Modelo ML:              http://localhost:5001"
+        echo "  • Dashboard del modelo:   http://localhost:5001/"
+        ;;
+    "simulated_flows"|"simulated")
+        echo "  • Modelo simulado:        http://localhost:8000"
+        ;;
+    "dl_packets")
+        echo "  • Modelo DL:              http://localhost:5002"
+        ;;
+esac
 echo "  • Dashboard del router:   http://192.168.50.1:8081"
 echo "  • Firewall API:           http://192.168.50.1:5000/health"
 
@@ -201,12 +231,13 @@ echo "📋 Logs disponibles:"
 echo "  tail -f $MODEL_LOG"
 echo "  tail -f /tmp/firewall.log"
 echo "  tail -f /tmp/dashboard.log"
+echo "  tail -f /tmp/traffic_capture.log"
 
 echo ""
 echo "🔧 Comandos útiles:"
 echo "  ./stop_all.sh                    # Detener todo"
-echo "  ./restart_all.sh                 # Reiniciar con model_ml"
-echo "  ./restart_all.sh simulated       # Reiniciar con simulated-model"
+echo "  ./restart_all.sh                 # Reiniciar sistema"
+echo "  ./config_manager.sh              # Configurar sistema"
 echo "  sudo ./init_all.sh --reinstall   # Forzar reinstalación del router"
 
 echo ""

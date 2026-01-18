@@ -92,13 +92,26 @@ apt install -y \
 
 echo -e "${GREEN}✓ Paquetes del sistema instalados${NC}"
 
-echo "Instalando dependencias Python..."
-python3 -m venv .venv
-source .venv/bin/activate
-pip3 install --upgrade pip
-pip3 install flask scapy requests psutil
+echo "Verificando entorno virtual unificado..."
+PARENT_DIR="$(dirname "$SCRIPTS_DIR")"
+VENV_DIR="$PARENT_DIR/venv"
 
-echo -e "${GREEN}✓ Dependencias Python instaladas${NC}"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creando entorno virtual unificado en $VENV_DIR..."
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/pip" install --upgrade pip -q
+    echo -e "${GREEN}✓ Entorno virtual creado${NC}"
+fi
+
+echo "Instalando dependencias desde requirements.txt unificado..."
+if [ -f "$PARENT_DIR/requirements.txt" ]; then
+    "$VENV_DIR/bin/pip" install -r "$PARENT_DIR/requirements.txt" -q
+    echo -e "${GREEN}✓ Dependencias Python instaladas desde requirements.txt${NC}"
+else
+    echo -e "${YELLOW}⚠ No se encontró requirements.txt, instalando dependencias básicas...${NC}"
+    "$VENV_DIR/bin/pip" install flask scapy requests psutil -q
+    echo -e "${GREEN}✓ Dependencias básicas instaladas${NC}"
+fi
 
 echo ""
 echo -e "${YELLOW}Paso 5: Creando estructura de directorios...${NC}"

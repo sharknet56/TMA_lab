@@ -2,11 +2,12 @@
 # Script para detener todo y limpiar completamente el sistema
 
 echo "=== Deteniendo todos los servicios Python ==="
-sudo pkill -9 -f "python3 dashboard.py"
-sudo pkill -9 -f "python3 firewall_manager.py"
-sudo pkill -9 -f "python model_server.py"
-pkill -9 -f "python3 model_server.py"
-pkill -9 -f "python3 traffic_capture.py"
+sudo pkill -9 -f "python3 dashboard.py" 2>/dev/null || true
+sudo pkill -9 -f "python3 firewall_manager.py" 2>/dev/null || true
+sudo pkill -9 -f "python model_server.py" 2>/dev/null || true
+pkill -9 -f "python3 model_server.py" 2>/dev/null || true
+pkill -9 -f "python3 traffic_capture.py" 2>/dev/null || true
+pkill -9 -f "python3 traffic_capture_packets.py" 2>/dev/null || true
 echo "Servicios Python detenidos"
 sleep 2
 

@@ -4,35 +4,73 @@ dashboard.py - Dashboard web para monitorización del router
 Ubicación: /etc/router-system/dashboard.py
 """
 
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request
 import subprocess
 import re
 import time
 import psutil
+import os
 from datetime import datetime
 from collections import defaultdict
+from pathlib import Path
 
 app = Flask(__name__)
 
-# Leer configuración de interfaces desde router-control.sh o /etc/router-system/config
-def get_ap_interface():
-    """Obtener la interfaz AP desde la configuración"""
-    try:
-        # Intentar leer desde el script de control
-        with open('/etc/router-system/router-control.sh', 'r') as f:
-            for line in f:
-                if line.strip().startswith('AP_IFACE='):
-                    # Extraer el valor entre comillas
-                    match = re.search(r'AP_IFACE="([^"]+)"', line)
-                    if match:
-                        return match.group(1)
-    except:
-        pass
-    
-    # Fallback a la interfaz por defecto
-    return 'wlxc83a35b5a9f5'
+# Importar configuración
+try:
+    from config import (
+        AP_IFACE as AP_INTERFACE,
+        TRAFFIC_CAPTURE_MODE,
+        WIFI_SSID,
+        AP_GATEWAY,
+        AP_NETWORK,
+        get_capture_script
+    )
+except ImportError:
+    print("⚠ config.py no encontrado, usando valores por defecto")
+    AP_INTERFACE = 'wlxc83a35b5a9f5'
+    TRAFFIC_CAPTURE_MODE = 'flows'
+    WIFI_SSID = 'RouterFirewall'
+    AP_GATEWAY = '192.168.50.1'
+    AP_NETWORK = '192.168.50.0/24'
+    def get_capture_script():
+        return 'traffic_capture.py'
 
-AP_INTERFACE = get_ap_interface()
+def find_env_file():
+    """Buscar archivo .env"""
+    current_dir = Path(__file__).parent
+    for path in [current_dir / '.env', current_dir.parent / '.env']:
+        if path.exists():
+            return path
+    return None
+
+def update_env_variable(key, value):
+    """Actualizar variable en el archivo .env"""
+    env_file = find_env_file()
+    if not env_file:
+        env_file = Path(__file__).parent.parent / '.env'
+        env_file.touch()
+    
+    # Leer contenido actual
+    with open(env_file, 'r') as f:
+        lines = f.readlines()
+    
+    # Actualizar o agregar la variable
+    found = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f'{key}='):
+            lines[i] = f'{key}={value}\n'
+            found = True
+            break
+    
+    if not found:
+        lines.append(f'{key}={value}\n')
+    
+    # Escribir de vuelta
+    with open(env_file, 'w') as f:
+        f.writelines(lines)
+    
+    return True
 
 # Template HTML
 HTML_TEMPLATE = """
@@ -335,6 +373,31 @@ HTML_TEMPLATE = """
                     <span class="stat-value" id="active-categories">-</span>
                 </div>
             </div>
+            
+            <div class="card">
+                <h2>⚙️ Configuración</h2>
+                <div class="stat">
+                    <span class="stat-label">Modo de Captura</span>
+                    <span class="stat-value" id="capture-mode">-</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Script Activo</span>
+                    <span class="stat-value" id="capture-script">-</span>
+                </div>
+                <div style="margin-top: 15px; padding: 10px; background: #f8fafc; border-radius: 8px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #334155;">
+                        Cambiar modo de captura:
+                    </label>
+                    <select id="capture-mode-select" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px;">
+                        <option value="flows">Flows (Estadísticas agregadas)</option>
+                        <option value="packets">Packets (PCAPs completos)</option>
+                    </select>
+                    <button onclick="changeCaptureMode()" style="width: 100%; margin-top: 10px; padding: 10px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                        Aplicar Cambio
+                    </button>
+                    <div id="capture-mode-msg" style="margin-top: 8px; font-size: 12px; text-align: center;"></div>
+                </div>
+            </div>
         </div>
         
         <div class="grid">
@@ -425,6 +488,13 @@ HTML_TEMPLATE = """
                     document.getElementById('blocked-ips').textContent = data.firewall.blocked_ips;
                     document.getElementById('active-categories').textContent = data.firewall.categories;
                     
+                    // Configuración
+                    if (data.config) {
+                        document.getElementById('capture-mode').textContent = data.config.capture_mode === 'flows' ? '📊 Flows' : '📦 Packets';
+                        document.getElementById('capture-script').textContent = data.config.capture_script;
+                        document.getElementById('capture-mode-select').value = data.config.capture_mode;
+                    }
+                    
                     // Categorías
                     const categoriesList = document.getElementById('categories-list');
                     if (data.firewall.category_details && Object.keys(data.firewall.category_details).length > 0) {
@@ -491,8 +561,39 @@ HTML_TEMPLATE = """
                 });
         }
         
+        function changeCaptureMode() {
+            const select = document.getElementById('capture-mode-select');
+            const mode = select.value;
+            const msgDiv = document.getElementById('capture-mode-msg');
+            
+            msgDiv.innerHTML = '<span style="color: #f59e0b;">⏳ Aplicando cambio...</span>';
+            
+            fetch('/api/config/capture_mode', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ mode: mode })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    msgDiv.innerHTML = '<span style="color: #10b981;">✓ ' + data.message + '</span>';
+                    setTimeout(() => {
+                        updateDashboard();
+                    }, 1000);
+                } else {
+                    msgDiv.innerHTML = '<span style="color: #ef4444;">✗ Error: ' + data.error + '</span>';
+                }
+            })
+            .catch(error => {
+                console.error('Error cambiando modo:', error);
+                msgDiv.innerHTML = '<span style="color: #ef4444;">✗ Error de conexión</span>';
+            });
+        }
+        
         function toggleCategory(category, enable) {
-            fetch('http://192.168.50.1:5000/toggle_category', {
+            fetch(`http://${window.location.hostname}:5000/toggle_category`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -518,7 +619,7 @@ HTML_TEMPLATE = """
                 return;
             }
             
-            fetch('http://192.168.50.1:5000/clear_category', {
+            fetch(`http://${window.location.hostname}:5000/clear_category`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -566,7 +667,7 @@ def get_network_stats():
     """Obtener estadísticas de red"""
     stats = {
         'clients': 0,
-        'router_ip': '192.168.50.1',
+        'router_ip': AP_GATEWAY,
         'ap_interface': AP_INTERFACE,
         'bytes_sent': 0,
         'bytes_recv': 0,
@@ -690,10 +791,58 @@ def api_status():
         'system': get_system_stats(),
         'network': get_network_stats(),
         'firewall': get_firewall_stats(),
+        'config': {
+            'capture_mode': TRAFFIC_CAPTURE_MODE,
+            'capture_script': get_capture_script(),
+            'wifi_ssid': WIFI_SSID,
+            'ap_network': AP_NETWORK,
+            'ap_gateway': AP_GATEWAY,
+            'ap_interface': AP_INTERFACE
+        },
         'timestamp': datetime.now().isoformat()
     })
 
+@app.route('/api/config/capture_mode', methods=['POST'])
+def set_capture_mode():
+    """Cambiar modo de captura de tráfico"""
+    try:
+        data = request.json
+        mode = data.get('mode', 'flows')
+        
+        if mode not in ['flows', 'packets']:
+            return jsonify({'success': False, 'error': 'Modo inválido'}), 400
+        
+        # Actualizar .env
+        update_env_variable('TRAFFIC_CAPTURE_MODE', mode)
+        
+        # Reiniciar traffic_capture
+        run_command(['sudo', 'pkill', '-f', 'traffic_capture'])
+        
+        return jsonify({
+            'success': True,
+            'message': f'Modo cambiado a {mode}. Reinicia traffic_capture para aplicar cambios.',
+            'new_mode': mode
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """Obtener configuración actual del sistema"""
+    env_file = find_env_file()
+    config = {}
+    
+    if env_file:
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    config[key.strip()] = value.strip()
+    
+    return jsonify({'success': True, 'config': config})
+
 if __name__ == '__main__':
     print("=== Dashboard iniciado ===")
-    print("Accede a: http://192.168.50.1:8081")
+    print(f"Accede a: http://{AP_GATEWAY}:8081")
     app.run(host='0.0.0.0', port=8081, debug=False)
