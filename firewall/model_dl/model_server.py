@@ -319,27 +319,41 @@ def update_firewall_all():
         logger.error(traceback.format_exc())
         return False
 
-def extract_packet_features(packet):
-    """Extraer features de un paquete individual
+def sanitize_packet(pkt):
+    """Limpia y normaliza un paquete a vector de bytes de longitud fija.
     
-    Retorna un vector de features para el paquete.
-    Basado en características como tamaño, protocolo, flags, etc.
+    CRÍTICO: Esta función DEBE ser IDÉNTICA a la usada durante el entrenamiento.
+    Convierte cada paquete a un array de bytes de longitud MAX_LEN.
+    
+    Args:
+        pkt: Paquete Scapy
+        
+    Returns:
+        list: Vector de bytes de longitud MAX_LEN (padding con ceros si es necesario)
     """
-    features = []
-    
     try:
-        # Feature 1: Tamaño del paquete
-        pkt_size = len(packet)
-        features.append(pkt_size)
+        from scapy.all import Ether
         
-        # Si el modelo espera más features, se pueden agregar aquí
-        # Por ahora, para simplificar, usamos solo el tamaño
+        # Enmascarar datos de identidad (IP/MAC) - opcional para privacidad
+        if Ether in pkt:
+            pkt[Ether].src = "00:00:00:00:00:00"
+            pkt[Ether].dst = "00:00:00:00:00:00"
         
+        if IP in pkt:
+            pkt[IP].src = "0.0.0.0"
+            pkt[IP].dst = "0.0.0.0"
+        
+        # Convertir paquete completo a bytes
+        byte_list = list(bytes(pkt))
+        
+        # Ajustar a longitud fija MAX_LEN
+        if len(byte_list) > MAX_LEN:
+            return byte_list[:MAX_LEN]  # Truncar si es más largo
+        else:
+            return byte_list + [0] * (MAX_LEN - len(byte_list))  # Padding con ceros
     except Exception as e:
-        logger.debug(f"Error extrayendo features de paquete: {e}")
-        features = [0]  # Feature por defecto
-    
-    return features
+        logger.debug(f"Error sanitizando paquete: {e}")
+        return [0] * MAX_LEN  # Vector de ceros por defecto
 
 def process_pcap_to_sequences(pcap_data):
     """Procesar datos PCAP y convertir a secuencias para el modelo
@@ -378,14 +392,14 @@ def process_pcap_to_sequences(pcap_data):
                 if not is_valid_ip(src_ip) or not is_local_ip(src_ip):
                     continue
                 
-                # Extraer features del paquete
-                pkt_features = extract_packet_features(packet)
+                # Sanitizar paquete a vector de bytes de longitud fija
+                pkt_bytes = sanitize_packet(packet)
                 
                 # Agregar a la secuencia de esta IP
                 if src_ip not in ip_sequences:
                     ip_sequences[src_ip] = []
                 
-                ip_sequences[src_ip].append(pkt_features)
+                ip_sequences[src_ip].append(pkt_bytes)
         
         logger.info(f"Dispositivos encontrados: {len(ip_sequences)}")
         stats['packets_processed'] += len(packets)
@@ -398,19 +412,30 @@ def process_pcap_to_sequences(pcap_data):
         logger.error(traceback.format_exc())
         return {}
 
-def pad_sequence(sequence, max_len):
-    """Ajustar secuencia al tamaño esperado por el modelo (padding/truncate)"""
-    sequence = np.array(sequence)
+def preprocess_for_inference(packets_raw):
+    """Preprocesa paquetes para inferencia.
     
-    if len(sequence) > max_len:
-        # Truncar si es muy larga
-        return sequence[:max_len]
-    elif len(sequence) < max_len:
-        # Padding con ceros si es muy corta
-        padding = np.zeros((max_len - len(sequence), sequence.shape[1]))
-        return np.vstack([sequence, padding])
-    else:
-        return sequence
+    CRÍTICO: Aplica las MISMAS transformaciones que durante el entrenamiento:
+    1. Convertir a float32
+    2. Normalizar dividiendo por 255 (escala 0-1)
+    3. Añadir dimensión extra: (N, 500) → (N, 500, 1)
+    
+    Args:
+        packets_raw: Array numpy de shape (N, 500) con valores de bytes (0-255)
+        
+    Returns:
+        Array numpy de shape (N, 500, 1) con valores normalizados (0-1)
+    """
+    # Paso 1: Convertir a float32
+    packets_float = packets_raw.astype('float32')
+    
+    # Paso 2: Normalizar (0-255) → (0-1) - OBLIGATORIO
+    packets_normalized = packets_float / 255.0
+    
+    # Paso 3: Añadir dimensión para CNN: (N, 500) → (N, 500, 1) - OBLIGATORIO
+    packets_shaped = np.expand_dims(packets_normalized, axis=-1)
+    
+    return packets_shaped
 
 def predict_from_sequences(ip_sequences):
     """Realizar predicciones desde secuencias de paquetes
@@ -434,11 +459,21 @@ def predict_from_sequences(ip_sequences):
             if len(sequence) == 0:
                 continue
             
-            # Preparar secuencia para el modelo
-            padded_seq = pad_sequence(sequence, MAX_LEN)
+            # Convertir lista de vectores de bytes a array numpy
+            # Shape: (num_packets, MAX_LEN) con valores 0-255
+            packets_array = np.array(sequence, dtype=np.uint8)
             
-            # Reshape para el modelo: (1, MAX_LEN, num_features)
-            X = np.expand_dims(padded_seq, axis=0)
+            # Limitar a 1 paquete por dispositivo (o tomar promedio/primero)
+            # El modelo espera 1 secuencia de 500 bytes por predicción
+            if len(packets_array) > 0:
+                # Tomar el primer paquete como representativo
+                single_packet = packets_array[0:1]  # Shape: (1, 500)
+            else:
+                continue
+            
+            # Aplicar preprocesamiento (normalización y reshape)
+            # Input: (1, 500) → Output: (1, 500, 1) normalizado
+            X = preprocess_for_inference(single_packet)
             
             # Predecir
             predictions_proba = model.predict(X, verbose=0)
