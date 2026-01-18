@@ -1,18 +1,36 @@
 #!/bin/bash
 # Script para reiniciar todo el sistema limpiamente
+# Uso: ./restart_all.sh [simulated]
+# Por defecto usa model_ml, con argumento 'simulated' usa simulated-model
 
-# Obtener el directorio home del usuario real (no root)
-if [ -n "$SUDO_USER" ]; then
-    USER_HOME=$(eval echo ~$SUDO_USER)
-else
-    USER_HOME=$HOME
+# Determinar qué modelo usar
+MODEL_TYPE=${1:-ml}  # Por defecto "ml"
+if [ "$1" = "simulated" ]; then
+    MODEL_TYPE="simulated"
 fi
 
-PROJECT_DIR="$USER_HOME/Documentos/UPC/TMA/project"
+# Obtener el directorio del script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$SCRIPT_DIR"
 
+echo "=== Configuración ==="
+if [ "$MODEL_TYPE" = "simulated" ]; then
+    MODEL_DIR="$PROJECT_DIR/simulated-model"
+    MODEL_PORT=8000
+    MODEL_LOG="/tmp/model.log"
+    echo "Usando: simulated-model (puerto $MODEL_PORT)"
+else
+    MODEL_DIR="$PROJECT_DIR/model_ml"
+    MODEL_PORT=5001
+    MODEL_LOG="/tmp/model_server.log"
+    echo "Usando: model_ml (puerto $MODEL_PORT)"
+fi
+
+echo ""
 echo "=== Deteniendo todos los servicios ==="
 sudo pkill -9 -f "python3 dashboard.py"
 sudo pkill -9 -f "python3 firewall_manager.py"
+sudo pkill -9 -f "python model_server.py"
 pkill -9 -f "python3 model_server.py"
 pkill -9 -f "python3 traffic_capture.py"
 sleep 2
@@ -36,14 +54,21 @@ echo "Archivos actualizados"
 
 echo ""
 echo "=== Limpiando logs antiguos ==="
-sudo rm -f /tmp/model.log /tmp/firewall.log /tmp/dashboard.log
+sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log
 
 echo ""
-echo "=== Iniciando modelo simulado ==="
-cd "$PROJECT_DIR/simulated-model"
-sudo -u $SUDO_USER python3 model_server.py > /tmp/model.log 2>&1 &
-echo "Modelo iniciado (PID: $!)"
-sleep 2
+echo "=== Iniciando modelo ==="
+cd "$MODEL_DIR"
+if [ "$MODEL_TYPE" = "simulated" ]; then
+    python3 model_server.py > "$MODEL_LOG" 2>&1 &
+    MODEL_PID=$!
+else
+    # Para model_ml, usar el entorno virtual
+    ./ml/bin/python model_server.py > "$MODEL_LOG" 2>&1 &
+    MODEL_PID=$!
+fi
+echo "Modelo iniciado (PID: $MODEL_PID, puerto: $MODEL_PORT)"
+sleep 3
 
 echo ""
 echo "=== Iniciando router y firewall ==="
@@ -60,11 +85,16 @@ ps aux | grep -E "python3.*(model_server|firewall_manager|dashboard)" | grep -v 
 
 echo ""
 echo "=== URLs de acceso ==="
-echo "  - Modelo simulado: http://localhost:8000"
-echo "  - Dashboard: http://192.168.50.1:8081"
+if [ "$MODEL_TYPE" = "simulated" ]; then
+    echo "  - Modelo simulado: http://localhost:8000"
+else
+    echo "  - Modelo ML: http://localhost:5001"
+    echo "  - Dashboard del modelo: http://localhost:5001/"
+fi
+echo "  - Dashboard del router: http://192.168.50.1:8081"
 echo "  - Firewall API: http://192.168.50.1:5000/health"
 echo ""
 echo "Para ver logs:"
-echo "  tail -f /tmp/model.log"
+echo "  tail -f $MODEL_LOG"
 echo "  tail -f /tmp/firewall.log"
 echo "  tail -f /tmp/dashboard.log"

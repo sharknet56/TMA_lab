@@ -4,34 +4,26 @@
 echo "=== Deteniendo todos los servicios Python ==="
 sudo pkill -9 -f "python3 dashboard.py"
 sudo pkill -9 -f "python3 firewall_manager.py"
+sudo pkill -9 -f "python model_server.py"
 pkill -9 -f "python3 model_server.py"
 pkill -9 -f "python3 traffic_capture.py"
 echo "Servicios Python detenidos"
 sleep 2
 
 echo ""
-echo "=== Deteniendo router y servicios ==="
-# Obtener el directorio del proyecto
-if [ -n "$SUDO_USER" ]; then
-    USER_HOME=$(eval echo ~$SUDO_USER)
-else
-    USER_HOME=$HOME
-fi
-PROJECT_DIR="$USER_HOME/Documentos/UPC/TMA/project"
+echo "=== Deteniendo router y servicios de red ==="
+# Obtener el directorio del script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$SCRIPT_DIR"
 
 cd "$PROJECT_DIR/router-system"
 sudo ./router-control.sh stop
 echo "Router detenido"
-sleep 2
 
-echo ""
-echo "=== Eliminando directorio /etc/router-system/ ==="
-if [ -d "/etc/router-system" ]; then
-    sudo rm -rf /etc/router-system
-    echo "Directorio /etc/router-system/ eliminado"
-else
-    echo "El directorio /etc/router-system/ no existe"
-fi
+# Detener hostapd y dnsmasq si siguen corriendo
+sudo pkill -9 hostapd 2>/dev/null
+sudo pkill -9 dnsmasq 2>/dev/null
+sleep 2
 
 echo ""
 echo "=== Limpiando archivos PID y estado ==="
@@ -41,9 +33,9 @@ echo "Archivos de estado limpiados"
 
 echo ""
 echo "=== Limpiando logs ==="
-sudo rm -f /tmp/model.log /tmp/firewall.log /tmp/dashboard.log
+sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log /tmp/traffic_capture.log
+sudo rm -f /tmp/router_start.log
 sudo rm -f /var/log/hostapd.log /var/log/dnsmasq.log
-sudo rm -f /var/log/firewall_manager.log /var/log/traffic_capture.log /var/log/dashboard.log
 echo "Logs eliminados"
 
 echo ""
@@ -58,4 +50,7 @@ fi
 
 echo ""
 echo "=== Sistema completamente detenido y limpiado ==="
-echo "Para reiniciar ejecuta: sudo ./restart_all.sh"
+echo "Para reiniciar ejecuta:"
+echo "  sudo ./quick_start.sh         # Inicio rápido (recomendado)"
+echo "  ./restart_all.sh               # Usa model_ml (por defecto)"
+echo "  ./restart_all.sh simulated     # Usa simulated-model"

@@ -9,8 +9,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-CONFIG_DIR="/etc/router-system"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="$SCRIPTS_DIR"
+BACKUP_DIR="$CONFIG_DIR/backups"
 
 echo -e "${BLUE}"
 echo "╔════════════════════════════════════════════════════════════╗"
@@ -101,9 +102,7 @@ echo -e "${GREEN}✓ Dependencias Python instaladas${NC}"
 
 echo ""
 echo -e "${YELLOW}Paso 5: Creando estructura de directorios...${NC}"
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$CONFIG_DIR/backups"
-mkdir -p /var/log
+mkdir -p "$BACKUP_DIR"
 
 echo -e "${GREEN}✓ Directorios creados${NC}"
 
@@ -157,81 +156,14 @@ systemctl stop dnsmasq 2>/dev/null || true
 echo -e "${GREEN}✓ dnsmasq configurado${NC}"
 
 echo ""
-echo -e "${YELLOW}Paso 8: Creando scripts del sistema...${NC}"
-
-# Script principal de control
-cat > "$CONFIG_DIR/router-control.sh" <<'CONTROLSCRIPT'
-#!/bin/bash
-# Este archivo será reemplazado con el contenido del artifact router_toggle_system
-CONTROLSCRIPT
-
-# Copiar el script de control desde el artifact
-if [ -f "$SCRIPTS_DIR/router-control.sh" ]; then
-    cp "$SCRIPTS_DIR/router-control.sh" "$CONFIG_DIR/router-control.sh"
-else
-    echo -e "${YELLOW}Advertencia: router-control.sh no encontrado en directorio actual${NC}"
-    echo "Deberás copiarlo manualmente a $CONFIG_DIR/"
-fi
-
-chmod +x "$CONFIG_DIR/router-control.sh"
-
-# Crear enlace simbólico para usar desde cualquier lugar
-ln -sf "$CONFIG_DIR/router-control.sh" /usr/local/bin/router-control
-
-echo -e "${GREEN}✓ Script de control instalado (comando: router-control)${NC}"
-
-# Firewall Manager
-cat > "$CONFIG_DIR/firewall_manager.py" <<'FWSCRIPT'
-# Este archivo será reemplazado con el contenido del artifact firewall_manager_script
-FWSCRIPT
-
-if [ -f "$SCRIPTS_DIR/firewall_manager.py" ]; then
-    cp "$SCRIPTS_DIR/firewall_manager.py" "$CONFIG_DIR/firewall_manager.py"
-fi
-
-chmod +x "$CONFIG_DIR/firewall_manager.py"
-echo -e "${GREEN}✓ Firewall Manager instalado${NC}"
-
-# Traffic Capture
-cat > "$CONFIG_DIR/traffic_capture.py" <<'CAPSCRIPT'
-# Este archivo será reemplazado con el contenido del artifact traffic_capture_script
-CAPSCRIPT
-
-if [ -f "$SCRIPTS_DIR/traffic_capture.py" ]; then
-    cp "$SCRIPTS_DIR/traffic_capture.py" "$CONFIG_DIR/traffic_capture.py"
-fi
-
-# Configurar URLs del modelo
-sed -i "s|MODEL_BASE_URL = .*|MODEL_BASE_URL = os.getenv('MODEL_URL', '${MODEL_PCAP_URL%/*}')|" "$CONFIG_DIR/traffic_capture.py"
-
-chmod +x "$CONFIG_DIR/traffic_capture.py"
-echo -e "${GREEN}✓ Traffic Capture instalado${NC}"
-
-# Dashboard
-cat > "$CONFIG_DIR/dashboard.py" <<'DASHSCRIPT'
-# Este archivo será reemplazado con el contenido del artifact dashboard_web
-DASHSCRIPT
-
-if [ -f "$SCRIPTS_DIR/dashboard.py" ]; then
-    cp "$SCRIPTS_DIR/dashboard.py" "$CONFIG_DIR/dashboard.py"
-fi
-
-chmod +x "$CONFIG_DIR/dashboard.py"
-echo -e "${GREEN}✓ Dashboard instalado${NC}"
-
-# Actualizar variables en el script de control
-sed -i "s/INTERNET_IFACE=\".*\"/INTERNET_IFACE=\"$INTERNET_IFACE\"/" "$CONFIG_DIR/router-control.sh"
-sed -i "s/AP_IFACE=\".*\"/AP_IFACE=\"$AP_IFACE\"/" "$CONFIG_DIR/router-control.sh"
-
-echo ""
-echo -e "${YELLOW}Paso 9: Configurando estado inicial...${NC}"
+echo -e "${YELLOW}Paso 8: Configurando estado inicial...${NC}"
 echo "inactive" > "$CONFIG_DIR/router.state"
 echo -e "${GREEN}✓ Estado inicial configurado${NC}"
 
 echo ""
-echo -e "${YELLOW}Paso 10: Creando backup de configuración actual...${NC}"
-iptables-save > "$CONFIG_DIR/backups/iptables.rules.original"
-sysctl -a 2>/dev/null | grep net.ipv4.ip_forward > "$CONFIG_DIR/backups/sysctl.conf.original" || true
+echo -e "${YELLOW}Paso 9: Creando backup de configuración actual...${NC}"
+iptables-save > "$BACKUP_DIR/iptables.rules.original"
+sysctl -a 2>/dev/null | grep net.ipv4.ip_forward > "$BACKUP_DIR/sysctl.conf.original" || true
 echo -e "${GREEN}✓ Backup creado${NC}"
 
 echo ""
@@ -245,163 +177,13 @@ echo "  - Interfaz AP: $AP_IFACE"
 echo "  - SSID: $WIFI_SSID"
 echo "  - IP Router: 192.168.50.1"
 echo "  - Rango DHCP: 192.168.50.10-100"
+echo "  - Directorio: $CONFIG_DIR"
 echo ""
-echo -e "${BLUE}Comandos disponibles:${NC}"
-echo "  ${GREEN}router-control start${NC}   - Activar modo router"
-echo "  ${GREEN}router-control stop${NC}    - Desactivar modo router"
-echo "  ${GREEN}router-control status${NC}  - Ver estado actual"
-echo "  ${GREEN}router-control restart${NC} - Reiniciar modo router"
+echo -e "${BLUE}Para iniciar el sistema:${NC}"
+echo "  ${GREEN}cd $SCRIPTS_DIR/..${NC}"
+echo "  ${GREEN}sudo ./quick_start.sh${NC}"
 echo ""
 echo -e "${BLUE}Servicios web (cuando el router esté activo):${NC}"
-echo "  - Dashboard: http://192.168.50.1:8080"
+echo "  - Dashboard: http://192.168.50.1:8081"
 echo "  - API Firewall: http://192.168.50.1:5000"
 echo ""
-echo -e "${YELLOW}Para activar el modo router ahora, ejecuta:${NC}"
-echo "  ${GREEN}sudo router-control start${NC}"
-echo ""
-echo -e "${BLUE}Documentación completa en: $CONFIG_DIR/README.md${NC}"
-echo ""
-
-# Crear README
-cat > "$CONFIG_DIR/README.md" <<'README'
-# Sistema Router/Firewall con Categorización Dinámica
-
-## Descripción
-Sistema que convierte tu Ubuntu en un router WiFi con firewall dinámico controlado por ML.
-
-## Comandos Principales
-
-### Activar modo router
-```bash
-sudo router-control start
-```
-
-### Desactivar modo router
-```bash
-sudo router-control stop
-```
-
-### Ver estado
-```bash
-sudo router-control status
-```
-
-## API del Firewall
-
-### Actualizar categorías
-```bash
-curl -X POST http://192.168.50.1:5000/update_categories \
-  -H "Content-Type: application/json" \
-  -d '{
-    "categories": {
-      "malware": ["192.168.50.15", "192.168.50.23"],
-      "suspicious": ["192.168.50.8"]
-    }
-  }'
-```
-
-### Añadir IPs a categoría
-```bash
-curl -X POST http://192.168.50.1:5000/add_to_category \
-  -H "Content-Type: application/json" \
-  -d '{
-    "category": "malware",
-    "ips": ["192.168.50.99"]
-  }'
-```
-
-### Eliminar IPs de categoría
-```bash
-curl -X POST http://192.168.50.1:5000/remove_from_category \
-  -H "Content-Type: application/json" \
-  -d '{
-    "category": "malware",
-    "ips": ["192.168.50.99"]
-  }'
-```
-
-### Ver categorías actuales
-```bash
-curl http://192.168.50.1:5000/get_categories
-```
-
-### Ver estadísticas
-```bash
-curl http://192.168.50.1:5000/stats
-```
-
-### Limpiar todas las categorías
-```bash
-curl -X POST http://192.168.50.1:5000/clear_all
-```
-
-## Integración con tu Modelo
-
-Tu modelo debe:
-1. Recibir tráfico (PCAP y flows) en los endpoints configurados
-2. Analizar el tráfico
-3. Enviar categorías al firewall
-
-Ejemplo de envío desde tu modelo:
-```python
-import requests
-
-# Categorizar IPs basándose en análisis
-categories = {
-    "malware": ["192.168.50.15"],
-    "suspicious": ["192.168.50.8", "192.168.50.12"]
-}
-
-# Enviar al firewall
-response = requests.post(
-    'http://192.168.50.1:5000/update_categories',
-    json={'categories': categories}
-)
-```
-
-## Archivos y Logs
-
-- Configuración: `/etc/router-system/`
-- Logs: `/var/log/router-system.log`
-- Logs individuales:
-  - `/var/log/firewall_manager.log`
-  - `/var/log/traffic_capture.log`
-  - `/var/log/dashboard.log`
-
-## Troubleshooting
-
-### El AP no inicia
-```bash
-# Ver logs de hostapd
-journalctl -u hostapd -n 50
-
-# Verificar que el adaptador USB soporta modo AP
-iw list | grep "Supported interface modes" -A 10
-```
-
-### Clientes no obtienen IP
-```bash
-# Ver logs de dnsmasq
-journalctl -u dnsmasq -n 50
-```
-
-### Verificar reglas de firewall
-```bash
-# Ver reglas actuales
-sudo iptables -L CATEGORY_FILTER -n -v
-
-# Ver todas las reglas
-sudo iptables -L -n -v
-```
-
-## Personalización
-
-Editar `/etc/router-system/router-control.sh` para cambiar:
-- Rango de IPs
-- Canal WiFi
-- Configuración de DHCP
-README
-
-chmod 644 "$CONFIG_DIR/README.md"
-
-echo -e "${GREEN}✓ README creado en $CONFIG_DIR/README.md${NC}"

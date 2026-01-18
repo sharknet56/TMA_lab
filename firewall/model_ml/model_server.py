@@ -32,15 +32,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Cargar modelo y encoder
-MODEL_PATH = 'iot_device_classifier_rf.pkl'
-ENCODER_PATH = 'label_encoder.pkl'
+MODEL_PATH = 'model.pkl'
+ENCODER_PATH = 'encoder.pkl'
 
 model = None
 label_encoder = None
+CATEGORIES = []  # Se cargarán automáticamente del encoder
 
 def load_model():
     """Cargar el modelo y el encoder desde disco"""
-    global model, label_encoder
+    global model, label_encoder, CATEGORIES
     
     try:
         if not os.path.exists(MODEL_PATH):
@@ -54,9 +55,12 @@ def load_model():
         model = joblib.load(MODEL_PATH)
         label_encoder = joblib.load(ENCODER_PATH)
         
+        # Extraer categorías automáticamente del encoder
+        CATEGORIES = label_encoder.classes_.tolist()
+        
         logger.info(f"✅ Modelo cargado exitosamente")
         logger.info(f"   Features esperados: {model.n_features_in_}")
-        logger.info(f"   Clases: {label_encoder.classes_}")
+        logger.info(f"   Clases: {CATEGORIES}")
         
         return True
     
@@ -82,27 +86,43 @@ recent_predictions = []
 MAX_RECENT = 50
 
 # Mapeo de categorías a tipos de amenaza para el firewall
+# Este mapeo se puede extender según las categorías encontradas
 CATEGORY_TO_THREAT = {
     'MULTIMEDIA': 'high_bandwidth',
     'SMART_CONTROLS': 'iot_control',
     'SENSORS': 'low_traffic',
-    'COMPUTING': 'general_device'
+    'COMPUTING': 'general_device',
+    'ENVIRONMENT_SENSING': 'low_traffic',
+    'HOME_AUTOMATION': 'iot_control',
+    'NETWORK_CORE': 'network_device',
+    'PERSONAL_DEVICES': 'general_device',
+    'SMART_APPLIANCES': 'iot_control',
+    'VIDEO_STREAMING': 'high_bandwidth'
 }
+
+def get_threat_type(category):
+    """Obtener tipo de amenaza para una categoría, con fallback"""
+    return CATEGORY_TO_THREAT.get(category, 'unknown_device')
 
 # Diccionario para rastrear predicciones por dispositivo IP
 # Estructura: {'192.168.1.10': {'MULTIMEDIA': 5, 'COMPUTING': 2, ...}}
 device_predictions = {}
 
-# Set para trackear flows ya procesados (evitar duplicados)
-# Usamos una tupla de (src_ip, dst_ip, src_port, dst_port, protocol, start_time) como identificador
+# Set para trackear flows ya procesados (evitar duplicados inmediatos)
+# Los flows se agrupan en ventanas de tiempo de 60 segundos
 processed_flows = set()
 MAX_PROCESSED_FLOWS = 10000  # Limitar tamaño del set
+last_cleanup_time = 0  # Última vez que se limpiaron flows antiguos
 
 # Red local detectada dinámicamente
 local_network = None
 
 def create_flow_id(flow):
-    """Crear un identificador único para un flow"""
+    """Crear un identificador único para un flow
+    
+    Incluye una ventana de tiempo para permitir re-clasificación periódica.
+    Los flows se consideran únicos dentro de ventanas de 60 segundos.
+    """
     try:
         # Usar características clave del flow para identificarlo
         src_ip = flow.get('SrcIP', flow.get('src_ip', ''))
@@ -111,8 +131,23 @@ def create_flow_id(flow):
         dst_port = flow.get('DstPort', 0)
         protocol = flow.get('Protocol', 0)
         
-        # Crear un hash simple pero efectivo
-        return f"{src_ip}:{src_port}->{dst_ip}:{dst_port}:{protocol}"
+        # Obtener timestamp del flow o usar el actual
+        # Redondear a ventanas de 60 segundos para agrupar flows similares
+        import time
+        timestamp = flow.get('start_time', time.time())
+        if isinstance(timestamp, str):
+            # Si es string, intentar parsearlo
+            try:
+                from datetime import datetime
+                timestamp = datetime.fromisoformat(timestamp).timestamp()
+            except:
+                timestamp = time.time()
+        
+        # Redondear timestamp a ventanas de 60 segundos
+        time_window = int(timestamp // 60)
+        
+        # Crear un hash que incluya la ventana de tiempo
+        return f"{src_ip}:{src_port}->{dst_ip}:{dst_port}:{protocol}@{time_window}"
     except Exception as e:
         logger.warning(f"Error creando flow ID: {e}")
         return None
@@ -135,6 +170,40 @@ def mark_flow_as_processed(flow):
         if len(processed_flows) > MAX_PROCESSED_FLOWS:
             # Eliminar los primeros 1000 elementos (los más antiguos)
             processed_flows = set(list(processed_flows)[1000:])
+
+def cleanup_old_flows():
+    """Limpiar flows procesados que son muy antiguos (más de 5 minutos)"""
+    global processed_flows, last_cleanup_time
+    import time
+    
+    current_time = time.time()
+    current_window = int(current_time // 60)
+    
+    # Solo limpiar cada 5 minutos
+    if last_cleanup_time and (current_time - last_cleanup_time) < 300:
+        return
+    
+    last_cleanup_time = current_time
+    
+    # Filtrar flows que tienen ventanas de tiempo antiguas (más de 5 minutos)
+    old_threshold = current_window - 5
+    new_processed_flows = set()
+    
+    for flow_id in processed_flows:
+        try:
+            # Extraer la ventana de tiempo del flow_id (formato: ...@time_window)
+            if '@' in flow_id:
+                time_window = int(flow_id.split('@')[-1])
+                if time_window >= old_threshold:
+                    new_processed_flows.add(flow_id)
+        except:
+            # Si hay error, mantener el flow
+            new_processed_flows.add(flow_id)
+    
+    removed = len(processed_flows) - len(new_processed_flows)
+    if removed > 0:
+        logger.info(f"Limpieza automática: {removed} flows antiguos eliminados del caché")
+        processed_flows = new_processed_flows
 
 def detect_local_network():
     """Detectar la red local dinámicamente desde las IPs del router"""
@@ -500,6 +569,9 @@ def receive_flows():
     total_flows = len(flows)
     logger.info(f"Flows recibidos: {total_flows} flows")
     
+    # Limpiar flows antiguos periódicamente
+    cleanup_old_flows()
+    
     # Filtrar flows ya procesados
     new_flows = []
     for flow in flows:
@@ -766,8 +838,41 @@ def dashboard():
                         document.getElementById('flows-count').textContent = data.stats.flows_received;
                         document.getElementById('predictions-count').textContent = data.stats.predictions_made;
                         document.getElementById('firewall-count').textContent = data.stats.firewall_updates;
+                        
+                        // Actualizar categorías dinámicamente
+                        if (data.model_classes && data.model_classes.length > 0) {
+                            updateCategories(data.model_classes);
+                        }
                     })
                     .catch(e => console.error('Error refreshing stats:', e));
+            }
+            
+            // Mapeo de emojis para categorías conocidas
+            const categoryEmojis = {
+                'MULTIMEDIA': '📹',
+                'SMART_CONTROLS': '💡',
+                'SENSORS': '🌡️',
+                'COMPUTING': '💻',
+                'ENVIRONMENT_SENSING': '🌡️',
+                'HOME_AUTOMATION': '🏠',
+                'NETWORK_CORE': '🌐',
+                'PERSONAL_DEVICES': '📱',
+                'SMART_APPLIANCES': '🔌',
+                'VIDEO_STREAMING': '📺'
+            };
+            
+            function updateCategories(classes) {
+                const container = document.getElementById('categories-container');
+                if (!container) return;
+                
+                container.innerHTML = '';
+                classes.forEach(category => {
+                    const badge = document.createElement('div');
+                    badge.className = 'class-badge';
+                    const emoji = categoryEmojis[category] || '🔷';
+                    badge.textContent = `${emoji} ${category}`;
+                    container.appendChild(badge);
+                });
             }
             
             setInterval(refreshStats, 5000);
@@ -807,11 +912,9 @@ def dashboard():
             
             <div class="section">
                 <h2>Categorías de Dispositivos</h2>
-                <div class="classes">
-                    <div class="class-badge">📹 MULTIMEDIA</div>
-                    <div class="class-badge">💡 SMART_CONTROLS</div>
-                    <div class="class-badge">🌡️ SENSORS</div>
-                    <div class="class-badge">💻 COMPUTING</div>
+                <div class="classes" id="categories-container">
+                    <!-- Las categorías se cargarán dinámicamente -->
+                    <div class="class-badge">⏳ Cargando...</div>
                 </div>
             </div>
             

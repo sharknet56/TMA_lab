@@ -10,10 +10,11 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Directorios y archivos
-CONFIG_DIR="/etc/router-system"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CONFIG_DIR="$SCRIPT_DIR"
 STATE_FILE="$CONFIG_DIR/router.state"
 BACKUP_DIR="$CONFIG_DIR/backups"
-LOG_FILE="/var/log/router-system.log"
+LOG_FILE="/tmp/router-system.log"
 
 # Interfaces (modifica según tu hardware)
 INTERNET_IFACE="wlp2s0"  # Interfaz que conecta a internet
@@ -22,10 +23,10 @@ AP_IP="192.168.50.1"
 AP_SUBNET="192.168.50.0/24"
 DHCP_RANGE="192.168.50.10,192.168.50.100"
 
-# PID files para servicios
-FIREWALL_PID="$CONFIG_DIR/firewall_manager.pid"
-CAPTURE_PID="$CONFIG_DIR/traffic_capture.pid"
-DASHBOARD_PID="$CONFIG_DIR/dashboard.pid"
+# PID files para servicios (en /tmp para evitar problemas de permisos)
+FIREWALL_PID="/tmp/firewall_manager.pid"
+CAPTURE_PID="/tmp/traffic_capture.pid"
+DASHBOARD_PID="/tmp/dashboard.pid"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
@@ -230,27 +231,9 @@ start_router_mode() {
         exit 1
     fi
     
-    # Iniciar servicios Python si existen
-    if [ -f "$CONFIG_DIR/firewall_manager.py" ]; then
-        log "Iniciando gestor de firewall..."
-        cd "$CONFIG_DIR"
-        python3 firewall_manager.py > /var/log/firewall_manager.log 2>&1 &
-        echo $! > "$FIREWALL_PID"
-    fi
-    
-    if [ -f "$CONFIG_DIR/traffic_capture.py" ]; then
-        log "Iniciando captura de tráfico..."
-        cd "$CONFIG_DIR"
-        python3 traffic_capture.py > /var/log/traffic_capture.log 2>&1 &
-        echo $! > "$CAPTURE_PID"
-    fi
-    
-    if [ -f "$CONFIG_DIR/dashboard.py" ]; then
-        log "Iniciando dashboard..."
-        cd "$CONFIG_DIR"
-        python3 dashboard.py > /var/log/dashboard.log 2>&1 &
-        echo $! > "$DASHBOARD_PID"
-    fi
+    # Nota: Los servicios Python se inician desde quick_start.sh
+    # para mayor flexibilidad y no depender de /etc/router-system
+    log "Servicios Python deben iniciarse por separado (ver quick_start.sh)"
     
     # Marcar como activo
     echo "active" > "$STATE_FILE"

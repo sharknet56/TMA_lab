@@ -28,8 +28,10 @@ jupyter notebook IntentoFinal.ipynb
 ```
 
 Esto generará:
-- `iot_device_classifier_rf.pkl` - Modelo entrenado
-- `label_encoder.pkl` - Encoder de etiquetas
+- `model.pkl` - Modelo entrenado (Random Forest)
+- `encoder.pkl` - Encoder de etiquetas
+
+**Nota**: El servidor carga automáticamente las categorías desde el encoder, por lo que no es necesario configurarlas manualmente.
 
 ### 3. Iniciar el servidor
 
