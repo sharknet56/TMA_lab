@@ -1,0 +1,33 @@
+{
+  "MAX_LEN": 500,
+  "MAX_PKTS": 1000,
+  "class_names": [
+    "Alexa",
+    "EnvironmentalSensor",
+    "HealthSensor",
+    "Hub",
+    "IndoorCamera",
+    "MonitorCamera",
+    "MotionSensor",
+    "Other",
+    "Printer",
+    "SecurityCamera",
+    "SmartBulb",
+    "SmartLock",
+    "SmartPlug",
+    "SmartSpeaker"
+  ],
+  "num_classes": 14,
+  "model_architecture": {
+    "input_shape": [
+      500,
+      1
+    ],
+    "total_params": 160526
+  },
+  "training_info": {
+    "test_accuracy": 0.9895287752151489,
+    "f1_macro": 0.9205774357656106,
+    "training_date": "2026-01-18 15:54:07"
+  }
+}

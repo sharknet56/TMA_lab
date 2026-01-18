@@ -1,0 +1,37 @@
+{
+  "model_type": "dl_packets",
+  "server_port": 5002,
+  "firewall_url": "http://192.168.50.1:5000",
+  "max_packets_per_pcap": 1000,
+  "confidence_threshold": 0.5,
+  "max_recent_predictions": 50,
+  
+  "device_categories": {
+    "MULTIMEDIA": [
+      "Amazon_Echo",
+      "Smart_TV",
+      "Chromecast"
+    ],
+    "SMART_CONTROLS": [
+      "SmartThings",
+      "TP-Link_Plug",
+      "WeMo_Plug",
+      "Philips_Hue"
+    ],
+    "SENSORS": [
+      "Netatmo_Weather",
+      "Withings_Sleep"
+    ],
+    "COMPUTING": [
+      "iPhone",
+      "MacBook",
+      "Android_Phone"
+    ]
+  },
+  
+  "notes": [
+    "Este archivo documenta la configuración del servidor de modelo DL",
+    "Las categorías se pueden personalizar según las necesidades del firewall",
+    "El modelo procesa hasta max_packets_per_pcap para optimizar rendimiento"
+  ]
+}
