@@ -41,6 +41,7 @@ if [ "$files_ok" = false ]; then
     echo ""
     echo "❌ Faltan archivos del modelo"
     echo "Asegúrate de tener todos los archivos en model_dl/inference/"
+    echo ""
     exit 1
 fi
 
@@ -86,6 +87,7 @@ if [ "$deps_ok" = false ]; then
     echo ""
     echo "❌ Faltan dependencias"
     echo "Instalar con: pip install -r $MODEL_DIR/requirements.txt"
+    echo ""
     exit 1
 fi
 
@@ -104,9 +106,11 @@ if lsof -Pi :5002 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     echo "Opciones:"
     echo "  1. Detener el proceso: kill \$(lsof -t -i:5002)"
     echo "  2. El servidor ya está corriendo, prueba: curl http://localhost:5002/health"
+    echo ""
     exit 1
 else
-    echo "✅ Puerto 5002 disponible"
+    echo "✓ Puerto 5002 disponible"
+    echo ""
 fi
 
 echo ""

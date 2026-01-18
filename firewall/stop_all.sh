@@ -9,6 +9,7 @@ pkill -9 -f "python3 model_server.py" 2>/dev/null || true
 pkill -9 -f "python3 traffic_capture.py" 2>/dev/null || true
 pkill -9 -f "python3 traffic_capture_packets.py" 2>/dev/null || true
 echo "Servicios Python detenidos"
+echo ""
 sleep 2
 
 echo ""
@@ -20,6 +21,7 @@ PROJECT_DIR="$SCRIPT_DIR"
 cd "$PROJECT_DIR/router-system"
 sudo ./router-control.sh stop
 echo "Router detenido"
+echo ""
 
 # Detener hostapd y dnsmasq si siguen corriendo
 sudo pkill -9 hostapd 2>/dev/null
@@ -31,6 +33,7 @@ echo "=== Limpiando archivos PID y estado ==="
 sudo rm -f /var/run/hostapd.pid
 sudo rm -f /var/run/dnsmasq.pid
 echo "Archivos de estado limpiados"
+echo ""
 
 echo ""
 echo "=== Limpiando logs ==="
@@ -38,15 +41,18 @@ sudo rm -f /tmp/model.log $MODEL_ML_LOG /tmp/firewall.log /tmp/dashboard.log /tm
 sudo rm -f /tmp/router_start.log
 sudo rm -f /var/log/hostapd.log /var/log/dnsmasq.log
 echo "Logs eliminados"
+echo ""
 
 echo ""
 echo "=== Verificando procesos ==="
 REMAINING=$(ps aux | grep -E "python3.*(model_server|firewall_manager|dashboard|traffic_capture)" | grep -v grep)
 if [ -z "$REMAINING" ]; then
     echo "✓ No hay procesos Python corriendo"
+    echo ""
 else
     echo "⚠ Procesos restantes:"
     echo "$REMAINING"
+    echo ""
 fi
 
 echo ""

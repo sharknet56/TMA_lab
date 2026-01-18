@@ -11,8 +11,10 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     source "$PROJECT_DIR/.env"
     echo "=== Configuración leída desde .env ==="
     echo "Modelo: $MODEL_TYPE"
+    echo ""
 else
     echo "⚠ Advertencia: .env no encontrado, usando valores por defecto"
+    echo ""
     MODEL_TYPE="ml_flows"
 fi
 
@@ -35,12 +37,14 @@ case "$MODEL_TYPE" in
         ;;
     *)
         echo "❌ MODEL_TYPE desconocido: $MODEL_TYPE"
+        echo ""
         exit 1
         ;;
 esac
 
 echo "Directorio: $MODEL_DIR"
 echo "Puerto: $MODEL_PORT"
+echo ""
 
 echo ""
 echo "=== Deteniendo todos los servicios ==="
@@ -56,6 +60,7 @@ echo "=== Limpiando caché ==="
 find "$PROJECT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 find "$PROJECT_DIR" -type f -name "*.pyc" -delete 2>/dev/null
 echo "✓ Caché eliminados"
+echo ""
 
 echo ""
 echo "=== Reiniciando servicios ==="
@@ -63,22 +68,27 @@ echo "⏳ Iniciando Firewall Manager..."
 cd "$PROJECT_DIR/router-system"
 sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > $FIREWALL_LOG 2>&1 &
 FIREWALL_PID=$!
+echo ""
 sleep 2
 
 echo "⏳ Iniciando Dashboard..."
 sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > $DASHBOARD_LOG 2>&1 &
 DASHBOARD_PID=$!
+echo ""
 sleep 2
 
 echo "⏳ Configurando router..."
 sudo ./router-control.sh start
+echo ""
 sleep 5
 
 # Verificar que la red está configurada
 if ip addr show $AP_IFACE | grep -q "$AP_GATEWAY"; then
     echo "✓ Red configurada ($AP_GATEWAY)"
+    echo ""
 else
     echo "⚠ Advertencia: La red $AP_NETWORK no está configurada"
+    echo ""
 fi
 
 echo "⏳ Iniciando modelo..."
@@ -95,8 +105,10 @@ if [ "$MODEL_TYPE" = "ml_flows" ] || [ "$MODEL_TYPE" = "ml" ]; then
     DETECTED_NET=$(grep "Red local detectada" "$MODEL_LOG" 2>/dev/null | tail -1 | grep -oP '\d+\.\d+\.\d+\.\d+/\d+' || echo "")
     if [ "$DETECTED_NET" = $AP_NETWORK ]; then
         echo "✓ Red $DETECTED_NET detectada correctamente"
+        echo ""
     elif [ -n "$DETECTED_NET" ]; then
         echo "⚠ Advertencia: Modelo detectó red $DETECTED_NET (esperada: $AP_NETWORK)"
+        echo ""
     fi
 fi
 
@@ -118,6 +130,7 @@ case "$MODEL_TYPE" in
         echo "📦 Modo: Packets (PCAP)"
         ;;
 esac
+echo ""
 
 sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > $TRAFFIC_CAPTURE_LOG 2>&1 &
 TRAFFIC_PID=$!

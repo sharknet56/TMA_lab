@@ -8,11 +8,14 @@ ENV_FILE="$SCRIPT_DIR/.env"
 if [ ! -f "$ENV_FILE" ]; then
     echo "❌ Archivo .env no encontrado"
     echo "   Copiando desde .env.example..."
+    echo ""
     if [ -f "$SCRIPT_DIR/.env.example" ]; then
         cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
         echo "✓ Archivo .env creado"
+        echo ""
     else
         echo "❌ No se encontró .env.example"
+        echo ""
         exit 1
     fi
 fi

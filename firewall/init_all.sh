@@ -47,8 +47,10 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     source "$PROJECT_DIR/.env"
     echo "✓ Configuración leída desde .env"
     echo "  Modelo: $MODEL_TYPE"
+    echo ""
 else
     echo "⚠ Usando configuración por defecto"
+    echo ""
     MODEL_TYPE="ml_flows"
 fi
 echo ""
@@ -83,6 +85,7 @@ for log_file in "${LOG_FILES[@]}"; do
 done
 
 echo "✓ Archivos de log verificados"
+echo ""
 
 # Determinar directorio y puerto del modelo según MODEL_TYPE
 case "$MODEL_TYPE" in
@@ -103,6 +106,7 @@ case "$MODEL_TYPE" in
         ;;
     *)
         echo "⚠ MODEL_TYPE desconocido: $MODEL_TYPE, usando ml_flows"
+        echo ""
         MODEL_DIR="$PROJECT_DIR/model_ml"
         MODEL_PORT=$MODEL_ML_PORT
         MODEL_LOG="$MODEL_ML_LOG"
@@ -111,6 +115,7 @@ esac
 
 echo "  Directorio: $MODEL_DIR"
 echo "  Puerto: $MODEL_PORT"
+echo ""
 
 echo ""
 echo "=== 2/6 Limpiando sistema anterior ==="
@@ -132,6 +137,7 @@ sudo rm -f /var/log/hostapd.log /var/log/dnsmasq.log
 sudo rm -f /var/log/firewall_manager.log /var/log/traffic_capture.log /var/log/dashboard.log
 
 echo "✓ Sistema limpio"
+echo ""
 sleep 1
 
 echo ""
@@ -152,6 +158,7 @@ echo "Instalando dependencias desde requirements.txt..."
 "$PROJECT_DIR/venv/bin/pip" install -r "$PROJECT_DIR/requirements.txt" -q
 
 echo "✓ Dependencias instaladas"
+echo ""
 sleep 1
 
 echo ""
@@ -162,6 +169,7 @@ cd "$PROJECT_DIR/router-system"
     
 echo "  Interfaz Internet: $INTERNET_IFACE"
 echo "  Interfaz AP: $AP_IFACE"
+echo ""
     
 # Ejecutar install.sh con valores por defecto (no interactivo)
 if [ -f "install.sh" ]; then
@@ -175,11 +183,14 @@ if [ -f "install.sh" ]; then
         echo "http://localhost:$MODEL_PORT/flows"
         } | sudo ./install.sh 2>&1 | grep -v "^read:"
         echo "✓ Router instalado"
+        echo ""
     else
         echo "⚠ install.sh no encontrado, continuando..."
+        echo ""
     fi
 fi
 
+echo ""
 sleep 2
 
 echo ""
@@ -191,14 +202,17 @@ cd "$MODEL_DIR"
 MODEL_PID=$!
 
 echo "✓ Modelo iniciado (PID: $MODEL_PID, puerto: $MODEL_PORT)"
+echo ""
 sleep 3
 
 # Verificar que el modelo está corriendo
 if ps -p $MODEL_PID > /dev/null; then
     echo "✓ Modelo corriendo correctamente"
+    echo ""
 else
     echo "❌ Error: el modelo no está corriendo"
     echo "Ver log: tail -f $PROJECT_DIR/$MODEL_LOG"
+    echo ""
     exit 1
 fi
 

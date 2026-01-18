@@ -23,8 +23,10 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     source "$PROJECT_DIR/.env"
     echo "✓ Configuración leída desde .env"
     echo "  Modelo: $MODEL_TYPE"
+    echo ""
 else
     echo "⚠ Advertencia: .env no encontrado, usando valores por defecto"
+    echo ""
     MODEL_TYPE="ml_flows"
 fi
 
@@ -35,21 +37,25 @@ case "$MODEL_TYPE" in
         MODEL_PORT=$MODEL_ML_PORT
         MODEL_LOG="$MODEL_ML_LOG"
         echo "🤖 Modelo: model_ml (puerto $MODEL_PORT)"
+        echo ""
         ;;
     "simulated_flows"|"simulated")
         MODEL_DIR="$PROJECT_DIR/simulated-model"
         MODEL_PORT=$MODEL_SIMULATED_PORT
         MODEL_LOG=$MODEL_SIMULATED_LOG
         echo "📦 Modelo: simulated-model (puerto $MODEL_PORT)"
+        echo ""
         ;;
     "dl_packets")
         MODEL_DIR="$PROJECT_DIR/model_dl"
         MODEL_PORT=$MODEL_DL_PORT
         MODEL_LOG=$MODEL_DL_LOG
         echo "🧠 Modelo: model_dl (puerto $MODEL_PORT)"
+        echo ""
         ;;
     *)
         echo "⚠ MODEL_TYPE desconocido: $MODEL_TYPE, usando ml_flows"
+        echo ""
         MODEL_DIR="$PROJECT_DIR/model_ml"
         MODEL_PORT=$MODEL_ML_PORT
         MODEL_LOG="$MODEL_ML_LOG"
@@ -109,6 +115,7 @@ cd "$PROJECT_DIR/router-system"
 
 # Iniciar servicios Python localmente (sin usar /etc/router-system)
 echo "Iniciando servicios del router..."
+echo ""
 
 # 1. Iniciar firewall_manager
 if [ -f "firewall_manager.py" ]; then
@@ -127,18 +134,22 @@ if [ -f "dashboard.py" ]; then
 fi
 
 # 3. Configurar red y router PRIMERO (hostapd, dnsmasq, iptables)
+echo ""
 echo "  Configurando red..."
 if sudo ./router-control.sh start 2>&1 | tee "$PROJECT_DIR/$ROUTER_LOG" | grep -q "ERROR\|Error" && ! grep -q "activado correctamente" "$PROJECT_DIR/$ROUTER_LOG"; then
     echo ""
     echo "⚠ Posibles problemas al configurar la red."
     echo "   Verifica el log: tail -f $PROJECT_DIR/$ROUTER_LOG"
+    echo ""
 else
     echo "  ✓ Red configurada ($AP_NETWORK)"
+    echo ""
 fi
 
 sleep 3
 
 # 4. Verificar que el modelo está corriendo
+echo ""
 if ps -p $MODEL_PID > /dev/null; then
     echo "  ✓ Modelo corriendo correctamente"
     
@@ -161,6 +172,8 @@ else
     echo "  Ver log: tail -f $PROJECT_DIR/$MODEL_LOG"
 fi
 
+echo ""
+
 cd "$PROJECT_DIR/router-system"
 
 # 5. Iniciar traffic_capture DESPUÉS de que todo esté configurado
@@ -175,15 +188,18 @@ case "$MODEL_TYPE" in
         echo "  📦 Modo de captura: Packets (PCAPs completos)"
         ;;
 esac
+echo ""
 
 if [ -f "$CAPTURE_SCRIPT" ]; then
     echo "  Iniciando captura de tráfico..."
     sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > "$PROJECT_DIR/$TRAFFIC_CAPTURE_LOG" 2>&1 &
     TRAFFIC_PID=$!
     echo "  ✓ Traffic Capture iniciado (PID: $TRAFFIC_PID, script: $CAPTURE_SCRIPT)"
+    echo ""
     sleep 2
 else
     echo "  ⚠ Advertencia: $CAPTURE_SCRIPT no encontrado"
+    echo ""
 fi
 
 sleep 1
