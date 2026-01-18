@@ -22,7 +22,7 @@ import os
 app = Flask(__name__)
 FIREWALL_PORT = os.getenv('FIREWALL_PORT', '5000')
 # Configuración del firewall
-FIREWALL_URL = 'http://localhost:{FIREWALL_PORT}'
+FIREWALL_URL = f'http://localhost:{FIREWALL_PORT}'
 
 # Configuración de logging
 logging.basicConfig(
@@ -267,6 +267,14 @@ def update_device_prediction(ip, category):
         device_predictions[ip][category] = 0
     
     device_predictions[ip][category] += 1
+    
+    # Verificar si debemos enviar al firewall (3+ predicciones de la misma categoría)
+    majority_category = get_device_category(ip)
+    if majority_category and device_predictions[ip][majority_category] >= 3:
+        # Enviar actualización al firewall
+        send_to_firewall()
+        # Resetear contador para no enviar continuamente
+        device_predictions[ip][majority_category] = 1
 
 def get_device_category(ip):
     """Obtener la categoría principal de un dispositivo (por mayoría)"""
@@ -574,8 +582,8 @@ def receive_flows():
     prediction_count = predict_device_categories(flows_df)
     
     if prediction_count > 0:
-        # Enviar al firewall (usa el sistema de categoría única por dispositivo)
-        send_to_firewall()
+        # El envío al firewall se hace automáticamente en update_device_prediction()
+        # cuando un dispositivo alcanza 3+ predicciones consistentes
         
         # Obtener categorías actuales para el response
         current_categories = get_categories_for_firewall()
