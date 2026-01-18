@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-traffic_capture.py - Captura de tráfico y envío de FLOWS al modelo
-Ubicación: router-system/traffic_capture.py
-Modo: FLOWS (estadísticas agregadas tipo CICFlowMeter)
+traffic_capture.py - Captura de tráfico y envío al modelo
+Ubicación: /etc/router-system/traffic_capture.py
 """
 
 from scapy.all import sniff, wrpcap, IP, TCP, UDP
@@ -16,56 +15,33 @@ from collections import defaultdict
 import os
 import numpy as np
 
-# Importar configuración centralizada
-try:
-    from config import (
-        AP_IFACE as INTERFACE,
-        FLOW_BUFFER_FILE,
-        FLOWS_ENDPOINT,
-        FLOW_SEND_INTERVAL,
-        FLOW_IDLE_THRESHOLD,
-        FLOW_CLEANUP_INTERVAL,
-        HTTP_TIMEOUT,
-        TRAFFIC_CAPTURE_LOG
-    )
-    CONFIG_LOADED = True
-except ImportError:
-    print("⚠ Advertencia: config.py no encontrado, usando valores por defecto")
-    INTERFACE = 'wlxc83a35b5a9f5'
-    FLOW_BUFFER_FILE = '/tmp/flow_buffer.json'
-    MODEL_BASE_URL = os.getenv('MODEL_URL', 'http://localhost:5001')
-    FLOWS_ENDPOINT = f'{MODEL_BASE_URL}/flows'
-    FLOW_SEND_INTERVAL = 10
-    FLOW_IDLE_THRESHOLD = 1.0
-    FLOW_CLEANUP_INTERVAL = 300
-    HTTP_TIMEOUT = 10
-    TRAFFIC_CAPTURE_LOG = '/tmp/traffic_capture.log'
-    CONFIG_LOADED = False
+# Configuración
+INTERFACE = 'wlxc83a35b5a9f5'  # Interfaz del punto de acceso
+PCAP_BUFFER_FILE = '/tmp/traffic_buffer.pcap'
+FLOW_BUFFER_FILE = '/tmp/flow_buffer.json'
+
+# Endpoints del modelo (modificar según tu configuración)
+MODEL_BASE_URL = os.getenv('MODEL_URL', 'http://localhost:5001')
+PCAP_ENDPOINT = f'{MODEL_BASE_URL}/pcap'
+FLOWS_ENDPOINT = f'{MODEL_BASE_URL}/flows'
+
+# Configuración de buffers
+PCAP_BUFFER_SIZE = 1000  # Paquetes antes de enviar
+PCAP_SEND_INTERVAL = 30  # Segundos
+FLOW_SEND_INTERVAL = 10  # Segundos
 
 # Logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(TRAFFIC_CAPTURE_LOG),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Buffers globales (solo flows, no PCAP)
-flows = defaultdict(lambda: create_flow_structure())
-flows_lock = threading.Lock()
+# Buffers globales
+packet_buffer = []
+packet_lock = threading.Lock()
 
-stats = {
-    'total_packets': 0,
-    'total_bytes': 0,
-    'flow_sends': 0,
-    'last_flow_send': None,
-    'errors': 0,
-    'active_flows': 0
-}
-
+# Estructura para flows con todas las features de CICFlowMeter
 def create_flow_structure():
     return {
         'start_time': None,
@@ -120,26 +96,26 @@ def create_flow_structure():
         'idle_times': [],
         'last_packet_time': None,
         'active_start': None,
-        'idle_threshold': FLOW_IDLE_THRESHOLD if 'FLOW_IDLE_THRESHOLD' in globals() else 1.0,
+        'idle_threshold': 1.0,  # 1 segundo
         
-        # Subflow stats
+        # Subflow (consideramos 1 subflow por simplicidad)
         'subflow_fwd_packets': 0,
         'subflow_fwd_bytes': 0,
         'subflow_bwd_packets': 0,
         'subflow_bwd_bytes': 0,
     }
 
-# Inicializar el diccionario de flows después de definir la función
 flows = defaultdict(create_flow_structure)
 flows_lock = threading.Lock()
 
 stats = {
     'total_packets': 0,
     'total_bytes': 0,
+    'pcap_sends': 0,
     'flow_sends': 0,
+    'last_pcap_send': None,
     'last_flow_send': None,
-    'errors': 0,
-    'active_flows': 0
+    'errors': 0
 }
 
 def create_flow_key(packet):
@@ -310,17 +286,72 @@ def update_flow(packet):
                 flow['init_fwd_win_bytes'] = packet[TCP].window
             if flow['bwd_packets'] == 1 and not packet_is_forward:
                 flow['init_bwd_win_bytes'] = packet[TCP].window
+
 def packet_handler(packet):
-    """Procesar cada paquete capturado (solo para flows, no PCAP)"""
-    global stats
+    """Procesar cada paquete capturado"""
+    global packet_buffer, stats
     
     # Actualizar estadísticas
     stats['total_packets'] += 1
     if IP in packet:
         stats['total_bytes'] += len(packet)
     
-    # Solo actualizar flows (no enviar PCAPs)
+    # Añadir al buffer PCAP
+    with packet_lock:
+        packet_buffer.append(packet)
+    
+    # Actualizar flows
     update_flow(packet)
+    
+    # Enviar si el buffer está lleno
+    if len(packet_buffer) >= PCAP_BUFFER_SIZE:
+        threading.Thread(target=send_pcap_buffer, daemon=True).start()
+
+def send_pcap_buffer():
+    """Enviar buffer PCAP al modelo"""
+    global packet_buffer, stats
+    
+    with packet_lock:
+        if not packet_buffer:
+            return
+        
+        # Copiar buffer y limpiar
+        packets_to_send = packet_buffer[:]
+        packet_buffer = []
+    
+    try:
+        # Guardar en archivo temporal
+        wrpcap(PCAP_BUFFER_FILE, packets_to_send)
+        
+        # Enviar al modelo
+        with open(PCAP_BUFFER_FILE, 'rb') as f:
+            files = {'file': ('traffic.pcap', f, 'application/vnd.tcpdump.pcap')}
+            
+            logger.info(f"Enviando {len(packets_to_send)} paquetes al modelo...")
+            response = requests.post(
+                PCAP_ENDPOINT,
+                files=files,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"PCAP enviado exitosamente: {response.status_code}")
+                stats['pcap_sends'] += 1
+                stats['last_pcap_send'] = datetime.now().isoformat()
+            else:
+                logger.warning(f"Error enviando PCAP: {response.status_code}")
+                stats['errors'] += 1
+    
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error de red enviando PCAP: {e}")
+        stats['errors'] += 1
+    except Exception as e:
+        logger.error(f"Error enviando PCAP: {e}")
+        stats['errors'] += 1
+    finally:
+        # Limpiar archivo temporal
+        if os.path.exists(PCAP_BUFFER_FILE):
+            os.remove(PCAP_BUFFER_FILE)
 
 def calculate_statistics(values):
     """Calcular estadísticas (mean, std, max, min, var)"""
@@ -507,8 +538,7 @@ def export_flows():
             
             exported_flows.append(flow_export)
         
-        # Limpiar flows antiguos (configurable desde .env)
-        cleanup_threshold = FLOW_CLEANUP_INTERVAL
+        # Limpiar flows antiguos (más de 5 minutos sin actividad)
         for flow_key in list(flows.keys()):
             if flows[flow_key]['end_time']:
                 age = current_time - flows[flow_key]['end_time']
@@ -534,7 +564,7 @@ def send_flows():
             FLOWS_ENDPOINT,
             json={'flows': flows_data},
             headers={'Content-Type': 'application/json'},
-            timeout=HTTP_TIMEOUT
+            timeout=10
         )
         
         if response.status_code == 200:
@@ -552,34 +582,36 @@ def send_flows():
         logger.error(f"Error enviando flows: {e}")
         stats['errors'] += 1
 
+def periodic_pcap_send():
+    """Enviar PCAP periódicamente"""
+    while True:
+        time.sleep(PCAP_SEND_INTERVAL)
+        
+        with packet_lock:
+            if packet_buffer:
+                threading.Thread(target=send_pcap_buffer, daemon=True).start()
+
 def periodic_flow_send():
     """Enviar flows periódicamente"""
     while True:
         time.sleep(FLOW_SEND_INTERVAL)
         send_flows()
-        
-        # Actualizar conteo de flows activos
-        with flows_lock:
-            stats['active_flows'] = len(flows)
+
 def print_stats():
     """Imprimir estadísticas periódicamente"""
     while True:
         time.sleep(60)  # Cada minuto
         logger.info(f"Stats: {stats['total_packets']} packets, "
                    f"{stats['total_bytes']} bytes, "
+                   f"{stats['pcap_sends']} PCAP sends, "
                    f"{stats['flow_sends']} flow sends, "
-                   f"{stats['active_flows']} active flows, "
                    f"{stats['errors']} errors")
 
 def capture_traffic():
     """Iniciar captura de tráfico"""
-    logger.info(f"=== Traffic Capture (FLOWS) iniciado ===")
-    logger.info(f"Configuración cargada: {'✓' if CONFIG_LOADED else '✗ (usando defaults)'}")
-    logger.info(f"Interfaz: {INTERFACE}")
+    logger.info(f"Iniciando captura de tráfico en {INTERFACE}...")
+    logger.info(f"Enviando PCAPs a: {PCAP_ENDPOINT}")
     logger.info(f"Enviando flows a: {FLOWS_ENDPOINT}")
-    logger.info(f"Intervalo de envío: {FLOW_SEND_INTERVAL}s")
-    logger.info(f"Umbral de idle: {FLOW_IDLE_THRESHOLD}s")
-    logger.info(f"Limpieza de flows: {FLOW_CLEANUP_INTERVAL}s")
     
     try:
         sniff(
@@ -593,7 +625,10 @@ def capture_traffic():
         logger.error(f"Error en captura: {e}")
 
 if __name__ == '__main__':
-    # Iniciar threads periódicos (solo flows, no PCAP)
+    logger.info("=== Traffic Capture iniciado ===")
+    
+    # Iniciar threads periódicos
+    threading.Thread(target=periodic_pcap_send, daemon=True).start()
     threading.Thread(target=periodic_flow_send, daemon=True).start()
     threading.Thread(target=print_stats, daemon=True).start()
     
@@ -602,6 +637,7 @@ if __name__ == '__main__':
         capture_traffic()
     except KeyboardInterrupt:
         logger.info("Deteniendo captura...")
-        # Enviar últimos flows
+        # Enviar últimos datos
+        send_pcap_buffer()
         send_flows()
         logger.info("Captura finalizada")

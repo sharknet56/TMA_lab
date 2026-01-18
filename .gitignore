@@ -1,58 +1,9 @@
-# Virtual Environments
 .venv/
-venv/
-ml/
-env/
-*/ml/
-*/.venv/
-*/venv/
-firewall/venv/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-dist/
-build/
-
-# Configuración local
-backups/
-.env
-firewall/.env
-*/.env
-
-# Logs
-*.log
-/tmp/*.log
-logs/
-
-# PID files
-*.pid
-
+backend/__pycache__/
+.archive/
+firewall/model_ml/ml
+firewall/model_ml/__pycache__
+firewall/router-system/.venv
 # Datasets (archivos grandes)
 5_dataset_model/archive/*.csv
 *.csv
-archive/
-
-# Backups
-backups/
-*.bak
-*.backup
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Sistema
-.DS_Store
-Thumbs.db
-
-# Archivos específicos del proyecto
-firewall/router-system/router.state
-firewall/model_ml/ml/
