@@ -34,7 +34,7 @@ echo "Archivos de estado limpiados"
 
 echo ""
 echo "=== Limpiando logs ==="
-sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log /tmp/traffic_capture.log
+sudo rm -f /tmp/model.log $MODEL_ML_LOG /tmp/firewall.log /tmp/dashboard.log /tmp/traffic_capture.log
 sudo rm -f /tmp/router_start.log
 sudo rm -f /var/log/hostapd.log /var/log/dnsmasq.log
 echo "Logs eliminados"

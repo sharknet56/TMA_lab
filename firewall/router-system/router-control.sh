@@ -14,14 +14,14 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CONFIG_DIR="$SCRIPT_DIR"
 STATE_FILE="$CONFIG_DIR/router.state"
 BACKUP_DIR="$CONFIG_DIR/backups"
-LOG_FILE="/tmp/router-system.log"
+
 
 # Cargar configuración desde .env del proyecto padre
 PARENT_DIR="$(dirname "$SCRIPT_DIR")"
 if [ -f "$PARENT_DIR/.env" ]; then
     source "$PARENT_DIR/.env"
 fi
-
+LOG_FILE=$ROUTER_LOG
 # Interfaces (con valores por defecto si no están en .env)
 INTERNET_IFACE="${INTERNET_IFACE:-wlp2s0}"  # Interfaz que conecta a internet
 AP_IFACE="${AP_IFACE:-wlxc83a35b5a9f5}"     # Interfaz USB para punto de acceso
@@ -274,8 +274,8 @@ start_router_mode() {
     echo "Rango DHCP: $DHCP_RANGE"
     echo ""
     echo "Servicios disponibles:"
-    [ -f "$FIREWALL_PID" ] && echo "  - API Firewall: http://$AP_IP:5000"
-    [ -f "$DASHBOARD_PID" ] && echo "  - Dashboard: http://$AP_IP:8081"
+    [ -f "$FIREWALL_PID" ] && echo "  - API Firewall: http://$AP_IP:$FIREWALL_PORT"
+    [ -f "$DASHBOARD_PID" ] && echo "  - Dashboard: http://$AP_IP:$DASHBOARD_PORT"
     echo ""
     log "Modo router activado correctamente"
 }

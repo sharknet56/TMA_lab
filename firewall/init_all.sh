@@ -56,24 +56,24 @@ fi
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
         MODEL_DIR="$PROJECT_DIR/model_ml"
-        MODEL_PORT=5001
-        MODEL_LOG="/tmp/model_server.log"
+        MODEL_PORT=$MODEL_ML_PORT
+        MODEL_LOG="$MODEL_ML_LOG"
         ;;
     "simulated_flows"|"simulated")
         MODEL_DIR="$PROJECT_DIR/simulated-model"
-        MODEL_PORT=8000
-        MODEL_LOG="/tmp/model.log"
+        MODEL_PORT=$MODEL_SIMULATED_PORT
+        MODEL_LOG=$MODEL_ML_LOG
         ;;
     "dl_packets")
         MODEL_DIR="$PROJECT_DIR/model_dl"
-        MODEL_PORT=5002
-        MODEL_LOG="/tmp/model_dl.log"
+        MODEL_PORT=$MODEL_DL_PORT
+        MODEL_LOG=$MODEL_DL_LOG
         ;;
     *)
         echo "⚠ MODEL_TYPE desconocido: $MODEL_TYPE, usando ml_flows"
         MODEL_DIR="$PROJECT_DIR/model_ml"
-        MODEL_PORT=5001
-        MODEL_LOG="/tmp/model_server.log"
+        MODEL_PORT=$MODEL_ML_PORT
+        MODEL_LOG="$MODEL_ML_LOG"
         ;;
 esac
 
@@ -91,16 +91,11 @@ if [ -f "$PROJECT_DIR/router-system/router-control.sh" ]; then
     sudo ./router-control.sh stop 2>/dev/null || true
 fi
 
-# Limpiar directorio de configuración
-if [ -d "/etc/router-system" ]; then
-    sudo rm -rf /etc/router-system
-fi
-
 # Limpiar PIDs
 sudo rm -f /var/run/hostapd.pid /var/run/dnsmasq.pid
 
 # Limpiar logs
-sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log /tmp/traffic_capture.log
+sudo rm -f $MODEL_ML_LOG $MODEL_ML_LOG $FIREWALL_LOG $DASHBOARD_LOG $TRAFFIC_CAPTURE_LOG
 sudo rm -f /var/log/hostapd.log /var/log/dnsmasq.log
 sudo rm -f /var/log/firewall_manager.log /var/log/traffic_capture.log /var/log/dashboard.log
 
@@ -131,41 +126,21 @@ echo ""
 echo "=== 4/6 Verificando router-system ==="
 cd "$PROJECT_DIR/router-system"
 
-# Verificar si ya está instalado
-if [ -d "/etc/router-system" ] && [ "$FORCE_REINSTALL" = false ]; then
-    echo "✓ Router ya instalado en /etc/router-system (usa --reinstall para forzar reinstalación)"
-else
-    if [ "$FORCE_REINSTALL" = true ]; then
-        echo "🔄 Forzando reinstalación del router..."
-        sudo rm -rf /etc/router-system 2>/dev/null
-    else
-        echo "⚠ Router no instalado. Instalando con valores por defecto..."
-    fi
+
     
-    # Detectar interfaces automáticamente
-    AP_IFACE=$(ip link show | grep -oP '^\d+: \K(wlx[0-9a-f]+)' | head -1)
-    if [ -z "$AP_IFACE" ]; then
-        AP_IFACE="wlan1"  # Fallback
-    fi
+echo "  Interfaz Internet: $INTERNET_IFACE"
+echo "  Interfaz AP: $AP_IFACE"
     
-    INTERNET_IFACE=$(ip link show | grep -oP '^\d+: \K(wlp\w+)' | head -1)
-    if [ -z "$INTERNET_IFACE" ]; then
-        INTERNET_IFACE="wlan0"  # Fallback
-    fi
-    
-    echo "  Interfaz Internet: $INTERNET_IFACE"
-    echo "  Interfaz AP: $AP_IFACE"
-    
-    # Ejecutar install.sh con valores por defecto (no interactivo)
-    if [ -f "install.sh" ]; then
-        # Crear respuestas automáticas para el install.sh
-        {
-            echo "$INTERNET_IFACE"
-            echo "$AP_IFACE"
-            echo "$WIFI_SSID"
-            echo "$WIFI_PASSWORD"
-            echo "http://localhost:$MODEL_PORT/pcap"
-            echo "http://localhost:$MODEL_PORT/flows"
+# Ejecutar install.sh con valores por defecto (no interactivo)
+if [ -f "install.sh" ]; then
+    # Crear respuestas automáticas para el install.sh
+    {
+        echo $INTERNET_IFACE
+        echo $AP_IFACE
+        echo $WIFI_SSID
+        echo $WIFI_PASSWORD
+        echo "http://localhost:$MODEL_PORT/pcap"
+        echo "http://localhost:$MODEL_PORT/flows"
         } | sudo ./install.sh 2>&1 | grep -v "^read:"
         echo "✓ Router instalado"
     else
@@ -213,25 +188,25 @@ echo ""
 echo "🌐 URLs de acceso:"
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
-        echo "  • Modelo ML:              http://localhost:5001"
-        echo "  • Dashboard del modelo:   http://localhost:5001/"
+        echo "  • Modelo ML:              http://localhost:$MODEL_ML_PORT"
+        echo "  • Dashboard del modelo:   http://localhost:$MODEL_ML_PORT/"
         ;;
     "simulated_flows"|"simulated")
-        echo "  • Modelo simulado:        http://localhost:8000"
+        echo "  • Modelo simulado:        http://localhost:$MODEL_SIMULATED_PORT"
         ;;
     "dl_packets")
-        echo "  • Modelo DL:              http://localhost:5002"
+        echo "  • Modelo DL:              http://localhost:$MODEL_DL_PORT"
         ;;
 esac
-echo "  • Dashboard del router:   http://192.168.50.1:8081"
-echo "  • Firewall API:           http://192.168.50.1:5000/health"
+echo "  • Dashboard del router:   http://localhost:$DASHBOARD_PORT"
+echo "  • Firewall API:           http://localhost:$FIREWALL_PORT/health"
 
 echo ""
 echo "📋 Logs disponibles:"
 echo "  tail -f $MODEL_LOG"
-echo "  tail -f /tmp/firewall.log"
-echo "  tail -f /tmp/dashboard.log"
-echo "  tail -f /tmp/traffic_capture.log"
+echo "  tail -f $FIREWALL_LOG"
+echo "  tail -f $DASHBOARD_LOG"
+echo "  tail -f $TRAFFIC_CAPTURE_LOG"
 
 echo ""
 echo "🔧 Comandos útiles:"

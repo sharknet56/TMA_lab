@@ -32,27 +32,27 @@ fi
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
         MODEL_DIR="$PROJECT_DIR/model_ml"
-        MODEL_PORT=5001
-        MODEL_LOG="/tmp/model_server.log"
+        MODEL_PORT=$MODEL_ML_PORT
+        MODEL_LOG="$MODEL_ML_LOG"
         echo "🤖 Modelo: model_ml (puerto $MODEL_PORT)"
         ;;
     "simulated_flows"|"simulated")
         MODEL_DIR="$PROJECT_DIR/simulated-model"
-        MODEL_PORT=8000
-        MODEL_LOG="/tmp/model.log"
+        MODEL_PORT=$MODEL_SIMULATED_PORT
+        MODEL_LOG=$MODEL_SIMULATED_LOG
         echo "📦 Modelo: simulated-model (puerto $MODEL_PORT)"
         ;;
     "dl_packets")
         MODEL_DIR="$PROJECT_DIR/model_dl"
-        MODEL_PORT=5002
-        MODEL_LOG="/tmp/model_dl.log"
+        MODEL_PORT=$MODEL_DL_PORT
+        MODEL_LOG=$MODEL_DL_LOG
         echo "🧠 Modelo: model_dl (puerto $MODEL_PORT)"
         ;;
     *)
         echo "⚠ MODEL_TYPE desconocido: $MODEL_TYPE, usando ml_flows"
         MODEL_DIR="$PROJECT_DIR/model_ml"
-        MODEL_PORT=5001
-        MODEL_LOG="/tmp/model_server.log"
+        MODEL_PORT=$MODEL_ML_PORT
+        MODEL_LOG="$MODEL_ML_LOG"
         ;;
 esac
 
@@ -112,7 +112,7 @@ echo "Iniciando servicios del router..."
 
 # 1. Iniciar firewall_manager
 if [ -f "firewall_manager.py" ]; then
-    sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > /tmp/firewall.log 2>&1 &
+    sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > $FIREWALL_LOG 2>&1 &
     FIREWALL_PID=$!
     echo "  ✓ Firewall Manager iniciado (PID: $FIREWALL_PID)"
     sleep 1
@@ -120,7 +120,7 @@ fi
 
 # 2. Iniciar dashboard
 if [ -f "dashboard.py" ]; then
-    sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > /tmp/dashboard.log 2>&1 &
+    sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > $DASHBOARD_LOG 2>&1 &
     DASHBOARD_PID=$!
     echo "  ✓ Dashboard iniciado (PID: $DASHBOARD_PID)"
     sleep 1
@@ -128,12 +128,12 @@ fi
 
 # 3. Configurar red y router PRIMERO (hostapd, dnsmasq, iptables)
 echo "  Configurando red..."
-if sudo ./router-control.sh start 2>&1 | tee /tmp/router_start.log | grep -q "ERROR\|Error" && ! grep -q "activado correctamente" /tmp/router_start.log; then
+if sudo ./router-control.sh start 2>&1 | tee $ROUTER_LOG | grep -q "ERROR\|Error" && ! grep -q "activado correctamente" $ROUTER_LOG; then
     echo ""
     echo "⚠ Posibles problemas al configurar la red."
-    echo "   Verifica el log: tail -f /tmp/router_start.log"
+    echo "   Verifica el log: tail -f $ROUTER_LOG"
 else
-    echo "  ✓ Red configurada (192.168.50.0/24)"
+    echo "  ✓ Red configurada ($AP_NETWORK)"
 fi
 
 sleep 3
@@ -149,10 +149,10 @@ if ps -p $MODEL_PID > /dev/null; then
         # Verificar red detectada (solo para ml_flows)
         if [ "$MODEL_TYPE" = "ml_flows" ] || [ "$MODEL_TYPE" = "ml" ]; then
             DETECTED_NET=$(curl -s http://localhost:$MODEL_PORT/stats 2>/dev/null | "$PROJECT_DIR/venv/bin/python" -c "import sys, json; d=json.load(sys.stdin); print(d.get('local_network', 'N/A'))" 2>/dev/null)
-            if [ "$DETECTED_NET" = "192.168.50.0/24" ]; then
-                echo "  ✓ Red 192.168.50.0/24 detectada correctamente"
+            if [ "$DETECTED_NET" = "$AP_NETWORK" ]; then
+                echo "  ✓ Red $AP_NETWORK detectada correctamente"
             else
-                echo "  ⚠ Red detectada: $DETECTED_NET (esperada: 192.168.50.0/24)"
+                echo "  ⚠ Red detectada: $DETECTED_NET (esperada: $AP_NETWORK)"
             fi
         fi
     fi
@@ -178,7 +178,7 @@ esac
 
 if [ -f "$CAPTURE_SCRIPT" ]; then
     echo "  Iniciando captura de tráfico..."
-    sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > /tmp/traffic_capture.log 2>&1 &
+    sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > $TRAFFIC_CAPTURE_LOG 2>&1 &
     TRAFFIC_PID=$!
     echo "  ✓ Traffic Capture iniciado (PID: $TRAFFIC_PID, script: $CAPTURE_SCRIPT)"
     sleep 2
@@ -221,25 +221,25 @@ echo ""
 echo "🌐 URLs de acceso:"
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
-        echo "  • Modelo ML:              http://localhost:5001"
-        echo "  • Dashboard del modelo:   http://localhost:5001/"
+        echo "  • Modelo ML:              http://localhost:$MODEL_ML_PORT"
+        echo "  • Dashboard del modelo:   http://localhost:$MODEL_ML_PORT/"
         ;;
     "simulated_flows"|"simulated")
         echo "  • Modelo simulado:        http://localhost:8000"
         ;;
     "dl_packets")
-        echo "  • Modelo DL:              http://localhost:5002"
+        echo "  • Modelo DL:              http://localhost:$MODEL_DL_PORT"
         ;;
 esac
-echo "  • Dashboard del router:   http://192.168.50.1:8081"
-echo "  • Firewall API:           http://192.168.50.1:5000/health"
+echo "  • Dashboard del router:   http://localhost:$DASHBOARD_PORT"
+echo "  • Firewall API:           http://localhost:$FIREWALL_PORT/health"
 
 echo ""
 echo "📋 Logs disponibles:"
 echo "  tail -f $MODEL_LOG"
-echo "  tail -f /tmp/firewall.log"
-echo "  tail -f /tmp/dashboard.log"
-echo "  tail -f /tmp/traffic_capture.log"
+echo "  tail -f $FIREWALL_LOG"
+echo "  tail -f $DASHBOARD_LOG"
+echo "  tail -f $TRAFFIC_CAPTURE_LOG"
 
 echo ""
 echo "🔧 Comandos útiles:"

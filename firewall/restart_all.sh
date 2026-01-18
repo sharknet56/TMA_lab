@@ -137,7 +137,7 @@ echo "=== URLs de acceso ==="
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
         echo "  - Modelo ML: $MODEL_ML_URL"
-        echo "  - Dashboard del modelo: http://localhost:5001/"
+        echo "  - Dashboard del modelo: http://localhost:$MODEL_ML_PORT/"
         ;;
     "simulated_flows"|"simulated")
         echo "  - Modelo simulado: $MODEL_SIMULATED_URL"
@@ -151,6 +151,6 @@ echo "  - Firewall API: http://$AP_GATEWAY:$FIREWALL_PORT/health"
 echo ""
 echo "Para ver logs:"
 echo "  tail -f $MODEL_LOG"
-echo "  tail -f /tmp/firewall.log"
-echo "  tail -f /tmp/dashboard.log"
-echo "  tail -f /tmp/traffic_capture.log"
+echo "  tail -f $FIREWALL_LOG"
+echo "  tail -f $DASHBOARD_LOG"
+echo "  tail -f $TRAFFIC_CAPTURE_LOG"

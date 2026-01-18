@@ -9,7 +9,7 @@ import json
 import time
 
 MODEL_URL = 'http://localhost:8000'
-FIREWALL_URL = 'http://192.168.50.1:5000'
+FIREWALL_URL = 'http://localhost:5000'
 
 def test_health():
     """Probar health check del modelo"""

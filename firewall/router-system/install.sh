@@ -156,8 +156,8 @@ cat > /etc/dnsmasq.conf <<EOF
 # Router mode configuration
 interface=$AP_IFACE
 bind-interfaces
-dhcp-range=192.168.50.10,192.168.50.100,255.255.255.0,24h
-dhcp-option=3,192.168.50.1
+dhcp-range=$AP_DHCP_START,$AP_DHCP_END,255.255.255.0,24h
+dhcp-option=3,$AP_GATEWAY
 dhcp-option=6,8.8.8.8,8.8.4.4
 server=8.8.8.8
 server=8.8.4.4
@@ -188,8 +188,8 @@ echo -e "${BLUE}Configuración:${NC}"
 echo "  - Interfaz Internet: $INTERNET_IFACE"
 echo "  - Interfaz AP: $AP_IFACE"
 echo "  - SSID: $WIFI_SSID"
-echo "  - IP Router: 192.168.50.1"
-echo "  - Rango DHCP: 192.168.50.10-100"
+echo "  - IP Router: $AP_GATEWAY"
+echo "  - Rango DHCP: $AP_DHCP_START-$AP_DHCP_END"
 echo "  - Directorio: $CONFIG_DIR"
 echo ""
 echo -e "${BLUE}Para iniciar el sistema:${NC}"
@@ -197,6 +197,6 @@ echo "  ${GREEN}cd $SCRIPTS_DIR/..${NC}"
 echo "  ${GREEN}sudo ./quick_start.sh${NC}"
 echo ""
 echo -e "${BLUE}Servicios web (cuando el router esté activo):${NC}"
-echo "  - Dashboard: http://192.168.50.1:8081"
-echo "  - API Firewall: http://192.168.50.1:5000"
+echo "  - Dashboard: http://localhost:$DASHBOARD_PORT"
+echo "  - API Firewall: http://localhost:$FIREWALL_PORT"
 echo ""

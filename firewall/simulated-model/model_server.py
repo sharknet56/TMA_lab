@@ -10,12 +10,13 @@ import logging
 import time
 from datetime import datetime
 import random
-
+import os
 # Configuración
 app = Flask(__name__)
 
 # Configuración del firewall
-FIREWALL_URL = 'http://192.168.50.1:5000'
+FIREWALL_PORT = os.getenv('FIREWALL_PORT', '5000')
+FIREWALL_URL = f'http://localhost:{FIREWALL_PORT}'
 
 # Configuración de logging
 logging.basicConfig(

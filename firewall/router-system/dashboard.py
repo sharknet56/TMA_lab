@@ -71,7 +71,7 @@ def update_env_variable(key, value):
         f.writelines(lines)
     
     return True
-
+FIREWALL_PORT = os.getenv('FIREWALL_PORT', '5000')
 # Template HTML
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -593,7 +593,7 @@ HTML_TEMPLATE = """
         }
         
         function toggleCategory(category, enable) {
-            fetch(`http://${window.location.hostname}:5000/toggle_category`, {
+            fetch(`http://${window.location.hostname}:""" + FIREWALL_PORT + """/toggle_category`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -619,7 +619,7 @@ HTML_TEMPLATE = """
                 return;
             }
             
-            fetch(`http://${window.location.hostname}:5000/clear_category`, {
+            fetch(`http://${window.location.hostname}:""" + FIREWALL_PORT + """/clear_category`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -740,7 +740,7 @@ def get_firewall_stats():
     try:
         # Obtener categorías del firewall manager
         import requests
-        response = requests.get('http://localhost:5000/get_categories', timeout=2)
+        response = requests.get(f'http://localhost:{FIREWALL_PORT}/get_categories', timeout=2)
         if response.status_code == 200:
             data = response.json()
             categories = data.get('categories', {})
@@ -844,5 +844,6 @@ def get_config():
 
 if __name__ == '__main__':
     print("=== Dashboard iniciado ===")
-    print(f"Accede a: http://{AP_GATEWAY}:8081")
-    app.run(host='0.0.0.0', port=8081, debug=False)
+    DASHBOARD_PORT = os.getenv('DASHBOARD_PORT', '8081')
+    print(f"Accede a: http://{AP_GATEWAY}:{DASHBOARD_PORT}")
+    app.run(host='0.0.0.0', port=DASHBOARD_PORT, debug=False)

@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 import threading
 import time
-
+import os
 app = Flask(__name__)
 CORS(app)  # Habilitar CORS para todas las rutas
 
@@ -466,7 +466,7 @@ if __name__ == '__main__':
     initialize_firewall()
     
     logger.info("Firewall Manager listo")
-    logger.info("API escuchando en http://0.0.0.0:5000")
-    
+    FIREWALL_PORT = os.getenv('FIREWALL_PORT', '5000')
+    logger.info(f"API escuchando en http://0.0.0.0:{FIREWALL_PORT}")
     # Iniciar servidor Flask
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=FIREWALL_PORT, debug=False)
