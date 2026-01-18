@@ -7,7 +7,7 @@ env/
 */.venv/
 */venv/
 firewall/venv/
-
+firewall/.env
 # Python
 __pycache__/
 *.py[cod]

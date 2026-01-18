@@ -1,8 +1,0 @@
-# Requirements para el servidor de modelo Deep Learning
-# Instalar con: pip install -r requirements.txt
-
-flask>=2.3.0
-requests>=2.31.0
-tensorflow>=2.13.0
-scapy>=2.5.0
-numpy>=1.24.0

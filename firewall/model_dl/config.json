@@ -1,37 +1,82 @@
 {
-  "model_type": "dl_packets",
-  "server_port": 5002,
-  "firewall_url": "http://192.168.50.1:5000",
-  "max_packets_per_pcap": 1000,
-  "confidence_threshold": 0.5,
-  "max_recent_predictions": 50,
-  
-  "device_categories": {
-    "MULTIMEDIA": [
-      "Amazon_Echo",
-      "Smart_TV",
-      "Chromecast"
-    ],
-    "SMART_CONTROLS": [
-      "SmartThings",
-      "TP-Link_Plug",
-      "WeMo_Plug",
-      "Philips_Hue"
-    ],
-    "SENSORS": [
-      "Netatmo_Weather",
-      "Withings_Sleep"
-    ],
-    "COMPUTING": [
-      "iPhone",
-      "MacBook",
-      "Android_Phone"
-    ]
+  "model": {
+    "path": "inference/best_model.keras",
+    "encoder_path": "inference/label_encoder.pkl",
+    "config_path": "inference/model_config.json",
+    "type": "DeepLearning",
+    "architecture": "LSTM/CNN",
+    "max_sequence_length": 500
   },
-  
-  "notes": [
-    "Este archivo documenta la configuración del servidor de modelo DL",
-    "Las categorías se pueden personalizar según las necesidades del firewall",
-    "El modelo procesa hasta max_packets_per_pcap para optimizar rendimiento"
-  ]
+  "categories": {
+    "Alexa": {
+      "description": "Amazon Alexa y asistentes de voz",
+      "threat_level": "smart_speaker"
+    },
+    "SmartSpeaker": {
+      "description": "Altavoces inteligentes",
+      "threat_level": "smart_speaker"
+    },
+    "IndoorCamera": {
+      "description": "Cámaras de interior",
+      "threat_level": "security_camera"
+    },
+    "SecurityCamera": {
+      "description": "Cámaras de seguridad",
+      "threat_level": "security_camera"
+    },
+    "MonitorCamera": {
+      "description": "Cámaras de monitoreo",
+      "threat_level": "security_camera"
+    },
+    "MotionSensor": {
+      "description": "Sensores de movimiento",
+      "threat_level": "iot_sensor"
+    },
+    "EnvironmentalSensor": {
+      "description": "Sensores ambientales",
+      "threat_level": "iot_sensor"
+    },
+    "HealthSensor": {
+      "description": "Sensores de salud",
+      "threat_level": "iot_sensor"
+    },
+    "SmartPlug": {
+      "description": "Enchufes inteligentes",
+      "threat_level": "smart_control"
+    },
+    "SmartBulb": {
+      "description": "Bombillas inteligentes",
+      "threat_level": "smart_control"
+    },
+    "SmartLock": {
+      "description": "Cerraduras inteligentes",
+      "threat_level": "smart_control"
+    },
+    "Hub": {
+      "description": "Hubs de domótica",
+      "threat_level": "iot_hub"
+    },
+    "Printer": {
+      "description": "Impresoras",
+      "threat_level": "general_device"
+    },
+    "Other": {
+      "description": "Otros dispositivos",
+      "threat_level": "unknown_device"
+    }
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5002,
+    "debug": false
+  },
+  "firewall": {
+    "url": "http://192.168.50.1:5000",
+    "enabled": true
+  },
+  "processing": {
+    "max_packets_per_sequence": 500,
+    "min_packets_for_prediction": 10,
+    "confidence_threshold": 0.5
+  }
 }

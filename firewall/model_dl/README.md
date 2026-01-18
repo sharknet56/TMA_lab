@@ -1,19 +1,57 @@
-# Modelo Deep Learning - Servidor de Inferencia
+# Deep Learning Model Server
 
-Servidor Flask que recibe archivos PCAP y clasifica dispositivos IoT usando el modelo de Deep Learning entrenado.
+Servidor de clasificación de dispositivos IoT basado en Deep Learning (LSTM/CNN).
 
-## Archivos
+## Descripción
 
-- `model_server.py`: Servidor Flask principal
-- `inference/classify_pcap.py`: Script de clasificación de PCAPs
-- `inference/best_model.keras`: Modelo entrenado
-- `inference/label_encoder.pkl`: Codificador de etiquetas
-- `inference/model_config.json`: Configuración del modelo
+Este servidor recibe **archivos PCAP** (capturas de paquetes de red) y clasifica dispositivos IoT en 14 categorías usando un modelo de Deep Learning entrenado con redes neuronales.
+
+## Diferencias con model_ml
+
+| Característica | model_ml | model_dl |
+|----------------|----------|----------|
+| **Entrada** | Flows (estadísticas agregadas) | PCAPs (paquetes individuales) |
+| **Modelo** | Random Forest (scikit-learn) | LSTM/CNN (TensorFlow/Keras) |
+| **Formato** | JSON con features de flows | Archivos binarios PCAP |
+| **Procesamiento** | Estadísticas de flujo | Secuencias de paquetes |
+| **Puerto** | 5001 | 5002 |
+
+## Arquitectura
+
+```
+┌─────────────┐      ┌──────────────┐      ┌─────────────┐
+│   Traffic   │ PCAP │   Model DL   │ JSON │  Firewall   │
+│   Capture   ├─────→│   Server     ├─────→│   Manager   │
+│  (packets)  │      │  (DL/LSTM)   │      │             │
+└─────────────┘      └──────────────┘      └─────────────┘
+```
+
+## Archivos del Modelo
+
+El modelo requiere tres archivos en la carpeta `inference/`:
+
+1. **best_model.keras** - Modelo de red neuronal entrenado
+2. **label_encoder.pkl** - Encoder para decodificar predicciones
+3. **model_config.json** - Configuración del modelo (clases, parámetros)
+
+## Categorías Soportadas
+
+- **Alexa / SmartSpeaker** - Asistentes de voz
+- **IndoorCamera / SecurityCamera / MonitorCamera** - Cámaras
+- **MotionSensor / EnvironmentalSensor / HealthSensor** - Sensores
+- **SmartPlug / SmartBulb / SmartLock** - Dispositivos de control
+- **Hub** - Hubs de domótica
+- **Printer** - Impresoras
+- **Other** - Otros dispositivos
 
 ## Instalación
 
 ```bash
-pip install flask requests tensorflow scapy numpy
+# Instalar dependencias
+pip install tensorflow scapy flask requests
+
+# O usar el venv unificado
+sudo /path/to/firewall/venv/bin/pip install tensorflow
 ```
 
 ## Uso
@@ -21,113 +59,165 @@ pip install flask requests tensorflow scapy numpy
 ### Iniciar el servidor
 
 ```bash
-python model_server.py
+cd /path/to/firewall/model_dl
+python3 model_server.py
 ```
 
-El servidor se iniciará en `http://localhost:5002`
-
-### Endpoints disponibles
-
-#### `GET /health`
-Health check del servidor y estado del modelo
+O usar el sistema de inicio:
 
 ```bash
-curl http://localhost:5002/health
+# Configurar MODEL_TYPE=dl_packets en .env
+echo "MODEL_TYPE=dl_packets" >> /path/to/firewall/.env
+
+# Iniciar todo el sistema
+sudo ./quick_start.sh
+```
+
+### Endpoints
+
+#### Health Check
+```bash
+GET http://localhost:5002/health
 ```
 
 Respuesta:
 ```json
 {
   "status": "ok",
-  "model_loaded": true,
-  "classifier_available": true,
-  "timestamp": "2026-01-18T...",
-  "stats": {...}
+  "model_status": "loaded",
+  "model_type": "deep_learning",
+  "model_classes": ["Alexa", "EnvironmentalSensor", ...],
+  "max_len": 500
 }
 ```
 
-#### `POST /pcap`
-Enviar un archivo PCAP para clasificación
-
+#### Enviar PCAP
 ```bash
-curl -X POST -F "file=@traffic.pcap" http://localhost:5002/pcap
+POST http://localhost:5002/pcap
+Content-Type: multipart/form-data
+
+file: capture.pcap
 ```
 
 Respuesta:
 ```json
 {
   "status": "processed",
-  "message": "PCAP analyzed successfully",
-  "result": {
-    "device": "Amazon_Echo",
-    "confidence": 0.95,
-    "category": "MULTIMEDIA",
-    "total_packets": 1000,
-    "valid_packets": 950
-  },
-  "firewall_updated": true
+  "predictions_count": 3,
+  "devices": ["192.168.50.10", "192.168.50.15"],
+  "message": "3 devices classified"
 }
 ```
 
-#### `GET /stats`
-Obtener estadísticas del servidor
-
+#### Estadísticas
 ```bash
-curl http://localhost:5002/stats
+GET http://localhost:5002/stats
 ```
 
-#### `GET /predictions`
-Obtener todas las predicciones recientes
-
+#### Dispositivos Detectados
 ```bash
-curl http://localhost:5002/predictions
+GET http://localhost:5002/devices
 ```
 
-#### `GET /`
-Dashboard web con estadísticas en tiempo real
+#### Dashboard Web
+```
+http://localhost:5002/
+```
 
-Abre en tu navegador: `http://localhost:5002`
+## Cliente de Prueba
 
-## Integración con el Firewall
+```bash
+# Test básico
+python3 test_client.py
 
-El servidor se comunica automáticamente con el firewall en `http://192.168.50.1:5000` enviando categorías de dispositivos detectados.
+# Test con archivo PCAP
+python3 test_client.py /path/to/capture.pcap
+```
 
-### Mapeo de Dispositivos a Categorías
+## Procesamiento de Paquetes
 
-El servidor mapea los dispositivos clasificados a categorías de seguridad:
-
-- **MULTIMEDIA**: Amazon Echo, Smart TV, Chromecast
-- **SMART_CONTROLS**: SmartThings, TP-Link Plug, Philips Hue
-- **SENSORS**: Netatmo Weather, Withings Sleep
-- **COMPUTING**: iPhone, MacBook, Android Phone
-
-Puedes personalizar este mapeo editando `DEVICE_TO_CATEGORY` en `model_server.py`.
+El servidor:
+1. Recibe el archivo PCAP
+2. Extrae paquetes usando Scapy
+3. Agrupa paquetes por IP de origen (dispositivo)
+4. Extrae features de cada paquete (tamaño, protocolo, etc.)
+5. Crea secuencias de hasta 500 paquetes por dispositivo
+6. Aplica padding/truncado para ajustar al tamaño del modelo
+7. Predice la categoría con el modelo DL
+8. Actualiza el firewall con la clasificación
 
 ## Configuración
 
-Variables de entorno:
+Editar `config.json`:
 
-- `FIREWALL_URL`: URL del firewall (default: `http://192.168.50.1:5000`)
-- `MODEL_DL_PORT`: Puerto del servidor (default: `5002`)
-
-## Testing
-
-Ver `test_client.py` para ejemplos de uso del cliente.
+```json
+{
+  "processing": {
+    "max_packets_per_sequence": 500,
+    "min_packets_for_prediction": 10,
+    "confidence_threshold": 0.5
+  },
+  "firewall": {
+    "url": "http://192.168.50.1:5000",
+    "enabled": true
+  }
+}
+```
 
 ## Logs
 
-El servidor registra todas las operaciones con timestamps:
+Los logs del servidor se guardan en:
+```
+/path/to/firewall/logs/model_dl.log
+```
 
-- ✅ Modelo cargado
-- 📦 PCAPs recibidos
-- 🔄 Clasificaciones en proceso
-- ✅ Dispositivos detectados
-- 📤 Actualizaciones al firewall
-- ❌ Errores
+Ver logs:
+```bash
+tail -f logs/model_dl.log
+```
 
-## Notas
+## Integración con traffic_capture_packets
 
-- El modelo procesa hasta 1000 paquetes por PCAP para optimizar rendimiento
-- Los archivos PCAP se guardan temporalmente y se eliminan después del procesamiento
-- Las predicciones recientes se mantienen en memoria (últimas 50)
-- El servidor puede tardar unos segundos en cargar el modelo al iniciar
+El script `traffic_capture_packets.py` captura paquetes y los envía automáticamente al modelo:
+
+```python
+# En traffic_capture_packets.py
+PCAP_SEND_URL = 'http://localhost:5002/pcap'
+```
+
+## Troubleshooting
+
+### Modelo no carga
+```bash
+# Verificar archivos
+ls -lh inference/
+# Debe mostrar: best_model.keras, label_encoder.pkl, model_config.json
+```
+
+### TensorFlow no disponible
+```bash
+sudo /path/to/venv/bin/pip install tensorflow
+```
+
+### Error de memoria
+Si el modelo consume demasiada memoria, reducir el tamaño de secuencia en `model_config.json`.
+
+### PCAP no se procesa
+Verificar que Scapy está instalado:
+```bash
+sudo /path/to/venv/bin/pip install scapy
+```
+
+## Performance
+
+- **Velocidad**: ~100-200 ms por PCAP (depende del tamaño)
+- **Memoria**: ~500 MB - 1 GB (modelo en memoria)
+- **CPU**: Utiliza CPU para inferencia (puede usar GPU si TensorFlow está configurado)
+
+## Comparación de Precisión
+
+Según el `model_config.json`:
+- **Test Accuracy**: 98.95%
+- **F1 Macro**: 92.06%
+
+Excelente para clasificación de dispositivos IoT en tiempo real.

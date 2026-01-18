@@ -22,6 +22,10 @@ if [ -f "$PARENT_DIR/.env" ]; then
     source "$PARENT_DIR/.env"
 fi
 LOG_FILE=$ROUTER_LOG
+
+# Crear directorio de logs si no existe
+mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+
 # Interfaces (con valores por defecto si no están en .env)
 INTERNET_IFACE="${INTERNET_IFACE:-wlp2s0}"  # Interfaz que conecta a internet
 AP_IFACE="${AP_IFACE:-wlxc83a35b5a9f5}"     # Interfaz USB para punto de acceso
@@ -38,6 +42,7 @@ DASHBOARD_PID="/tmp/dashboard.pid"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    echo ""
 }
 
 print_status() {
@@ -191,6 +196,7 @@ EOF
 }
 
 start_router_mode() {
+    echo ""
     log "=== ACTIVANDO MODO ROUTER ==="
     
     # Verificar que no esté ya activo
@@ -231,7 +237,7 @@ start_router_mode() {
     log "Iniciando punto de acceso WiFi..."
     # Desenmascarar servicio si está masked
     systemctl unmask hostapd 2>/dev/null || true
-    systemctl start hostapd
+    systemctl start hostapd 2>/dev/null
     sleep 2
     
     if ! systemctl is-active --quiet hostapd; then
@@ -245,7 +251,7 @@ start_router_mode() {
     log "Iniciando servidor DHCP..."
     # Desenmascarar servicio si está masked
     systemctl unmask dnsmasq 2>/dev/null || true
-    systemctl start dnsmasq
+    systemctl start dnsmasq 2>/dev/null
     sleep 1
     
     if ! systemctl is-active --quiet dnsmasq; then
@@ -281,6 +287,7 @@ start_router_mode() {
 }
 
 stop_router_mode() {
+    echo ""
     log "=== DESACTIVANDO MODO ROUTER ==="
     
     # Detener servicios Python

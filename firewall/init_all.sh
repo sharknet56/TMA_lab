@@ -181,13 +181,12 @@ if [ -f "install.sh" ]; then
         echo $WIFI_PASSWORD
         echo "http://localhost:$MODEL_PORT/pcap"
         echo "http://localhost:$MODEL_PORT/flows"
-        } | sudo ./install.sh 2>&1 | grep -v "^read:"
-        echo "✓ Router instalado"
-        echo ""
-    else
-        echo "⚠ install.sh no encontrado, continuando..."
-        echo ""
-    fi
+    } | sudo ./install.sh 2>&1 | grep -v "^read:"
+    echo "✓ Router instalado"
+    echo ""
+else
+    echo "⚠ install.sh no encontrado, continuando..."
+    echo ""
 fi
 
 echo ""

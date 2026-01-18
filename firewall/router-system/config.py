@@ -150,9 +150,32 @@ PCAP_BUFFER_SIZE = int(os.getenv('PCAP_BUFFER_SIZE', '1000'))
 PCAP_SEND_INTERVAL = int(os.getenv('PCAP_SEND_INTERVAL', '30'))
 PACKET_STATS_INTERVAL = int(os.getenv('PACKET_STATS_INTERVAL', '60'))
 
-# Archivos temporales
-PCAP_BUFFER_FILE = os.getenv('PCAP_BUFFER_FILE', '/tmp/traffic_buffer.pcap')
-FLOW_BUFFER_FILE = os.getenv('FLOW_BUFFER_FILE', '/tmp/flow_buffer.json')
+# Archivos temporales - convertir a rutas absolutas
+_pcap_buffer = os.getenv('PCAP_BUFFER_FILE', '/tmp/traffic_buffer.pcap')
+_flow_buffer = os.getenv('FLOW_BUFFER_FILE', '/tmp/flow_buffer.json')
+
+# Si son rutas relativas, convertir a absolutas basándose en el directorio del .env
+if not os.path.isabs(_pcap_buffer):
+    env_file = find_env_file()
+    if env_file:
+        PCAP_BUFFER_FILE = str(env_file.parent / _pcap_buffer)
+    else:
+        PCAP_BUFFER_FILE = os.path.abspath(_pcap_buffer)
+else:
+    PCAP_BUFFER_FILE = _pcap_buffer
+
+if not os.path.isabs(_flow_buffer):
+    env_file = find_env_file()
+    if env_file:
+        FLOW_BUFFER_FILE = str(env_file.parent / _flow_buffer)
+    else:
+        FLOW_BUFFER_FILE = os.path.abspath(_flow_buffer)
+else:
+    FLOW_BUFFER_FILE = _flow_buffer
+
+# Crear directorios si no existen
+os.makedirs(os.path.dirname(PCAP_BUFFER_FILE), exist_ok=True)
+os.makedirs(os.path.dirname(FLOW_BUFFER_FILE), exist_ok=True)
 
 # ============================================
 # LOGS

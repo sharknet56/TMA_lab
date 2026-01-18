@@ -20,9 +20,9 @@ import os
 
 # Configuración
 app = Flask(__name__)
-
+FIREWALL_PORT = os.getenv('FIREWALL_PORT', '5000')
 # Configuración del firewall
-FIREWALL_URL = 'http://192.168.50.1:5000'
+FIREWALL_URL = 'http://localhost:{FIREWALL_PORT}'
 
 # Configuración de logging
 logging.basicConfig(
@@ -88,16 +88,16 @@ MAX_RECENT = 50
 # Mapeo de categorías a tipos de amenaza para el firewall
 # Este mapeo se puede extender según las categorías encontradas
 CATEGORY_TO_THREAT = {
-    'MULTIMEDIA': 'high_bandwidth',
-    'SMART_CONTROLS': 'iot_control',
-    'SENSORS': 'low_traffic',
-    'COMPUTING': 'general_device',
-    'ENVIRONMENT_SENSING': 'low_traffic',
-    'HOME_AUTOMATION': 'iot_control',
-    'NETWORK_CORE': 'network_device',
-    'PERSONAL_DEVICES': 'general_device',
-    'SMART_APPLIANCES': 'iot_control',
-    'VIDEO_STREAMING': 'high_bandwidth'
+    'MULTIMEDIA': 'MULTIMEDIA',
+    'SMART_CONTROLS': 'SMART_CONTROLS',
+    'SENSORS': 'SENSORS',
+    'COMPUTING': 'COMPUTING',
+    'ENVIRONMENT_SENSING': 'ENVIRONMENT_SENSING',
+    'HOME_AUTOMATION': 'HOME_AUTOMATION',
+    'NETWORK_CORE': 'NETWORK_CORE',
+    'PERSONAL_DEVICES': 'PERSONAL_DEVICES',
+    'SMART_APPLIANCES': 'SMART_APPLIANCES',
+    'VIDEO_STREAMING': 'VIDEO_STREAMING'
 }
 
 def get_threat_type(category):
@@ -208,50 +208,8 @@ def cleanup_old_flows():
 def detect_local_network():
     """Detectar la red local dinámicamente desde las IPs del router"""
     global local_network
-    try:
-        import socket
-        import netifaces
-        import ipaddress
-        
-        # Recopilar todas las redes privadas
-        private_networks = []
-        
-        for interface in netifaces.interfaces():
-            addrs = netifaces.ifaddresses(interface)
-            if netifaces.AF_INET in addrs:
-                for addr_info in addrs[netifaces.AF_INET]:
-                    ip = addr_info.get('addr', '')
-                    netmask = addr_info.get('netmask', '')
-                    
-                    # Skip localhost
-                    if ip.startswith('127.'):
-                        continue
-                    
-                    # Buscar red privada (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
-                    if ip.startswith('192.168.') or ip.startswith('10.') or (ip.startswith('172.') and 16 <= int(ip.split('.')[1]) <= 31):
-                        # Calcular la red
-                        network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
-                        private_networks.append((interface, ip, str(network)))
-        
-        # Priorizar redes 192.168.50.x (la red del AP)
-        for iface, ip, network in private_networks:
-            if '192.168.50.' in network:
-                local_network = network
-                logger.info(f"Red local detectada (AP): {local_network} en interfaz {iface}")
-                return local_network
-        
-        # Si no encuentra 192.168.50, usar la primera red privada no-localhost
-        if private_networks:
-            iface, ip, network = private_networks[0]
-            local_network = network
-            logger.info(f"Red local detectada: {local_network} en interfaz {iface}")
-            return local_network
-        
-    except Exception as e:
-        logger.warning(f"No se pudo detectar la red local automáticamente: {e}")
-    
     # Fallback a red por defecto
-    local_network = '192.168.50.0/24'
+    local_network = os.getenv('AP_NETWORK', '192.168.50.0/24')
     logger.info(f"Usando red local por defecto: {local_network}")
     
     return local_network
@@ -640,9 +598,6 @@ def receive_flows():
             'new_flows': len(new_flows)
         }), 200
 
-@app.route('/predict', methods=['POST'])
-
-@app.route('/predict', methods=['POST'])
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -1028,7 +983,8 @@ if __name__ == '__main__':
     # Cargar modelo
     if load_model():
         logger.info("✅ Servidor listo para recibir peticiones")
-        app.run(host='0.0.0.0', port=5001, debug=False)
+        ML_PORT = os.getenv('MODEL_ML_PORT', '5001')
+        app.run(host='0.0.0.0', port=ML_PORT, debug=False)
     else:
         logger.error("❌ No se pudo cargar el modelo. Verifica que los archivos existan.")
         logger.error(f"   Buscando: {MODEL_PATH} y {ENCODER_PATH}")

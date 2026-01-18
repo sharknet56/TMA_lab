@@ -44,6 +44,64 @@ def find_env_file():
             return path
     return None
 
+def get_active_capture_info():
+    """Detectar qué script de captura está corriendo y su modo"""
+    try:
+        # Buscar procesos de traffic_capture
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info['cmdline']
+                if cmdline and 'python' in str(cmdline).lower():
+                    cmdline_str = ' '.join(cmdline)
+                    if 'traffic_capture_packets.py' in cmdline_str:
+                        return {
+                            'mode': 'packets',
+                            'script': 'traffic_capture_packets.py',
+                            'icon': '📦'
+                        }
+                    elif 'traffic_capture.py' in cmdline_str:
+                        return {
+                            'mode': 'flows',
+                            'script': 'traffic_capture.py',
+                            'icon': '📊'
+                        }
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        
+        # Si no se encuentra proceso activo, determinar por MODEL_TYPE del .env
+        env_file = find_env_file()
+        if env_file:
+            with open(env_file, 'r') as f:
+                for line in f:
+                    if line.strip().startswith('MODEL_TYPE='):
+                        model_type = line.split('=', 1)[1].strip()
+                        if 'dl' in model_type or 'packets' in model_type:
+                            return {
+                                'mode': 'packets',
+                                'script': 'traffic_capture_packets.py',
+                                'icon': '📦'
+                            }
+                        else:
+                            return {
+                                'mode': 'flows',
+                                'script': 'traffic_capture.py',
+                                'icon': '📊'
+                            }
+        
+        # Default
+        return {
+            'mode': 'flows',
+            'script': 'traffic_capture.py',
+            'icon': '📊'
+        }
+    except Exception as e:
+        print(f"Error detecting capture info: {e}")
+        return {
+            'mode': 'flows',
+            'script': 'traffic_capture.py',
+            'icon': '📊'
+        }
+
 def update_env_variable(key, value):
     """Actualizar variable en el archivo .env"""
     env_file = find_env_file()
@@ -786,14 +844,16 @@ def index():
 @app.route('/api/status')
 def api_status():
     """API endpoint para obtener estado del sistema"""
+    capture_info = get_active_capture_info()
+    
     return jsonify({
         'router_active': check_router_active(),
         'system': get_system_stats(),
         'network': get_network_stats(),
         'firewall': get_firewall_stats(),
         'config': {
-            'capture_mode': TRAFFIC_CAPTURE_MODE,
-            'capture_script': get_capture_script(),
+            'capture_mode': capture_info['mode'],
+            'capture_script': capture_info['script'],
             'wifi_ssid': WIFI_SSID,
             'ap_network': AP_NETWORK,
             'ap_gateway': AP_GATEWAY,
@@ -812,16 +872,53 @@ def set_capture_mode():
         if mode not in ['flows', 'packets']:
             return jsonify({'success': False, 'error': 'Modo inválido'}), 400
         
-        # Actualizar .env
-        update_env_variable('TRAFFIC_CAPTURE_MODE', mode)
+        # Determinar MODEL_TYPE según el modo
+        if mode == 'packets':
+            new_model_type = 'dl_packets'
+        else:
+            new_model_type = 'ml_flows'
         
-        # Reiniciar traffic_capture
+        # Actualizar .env con ambos valores
+        update_env_variable('TRAFFIC_CAPTURE_MODE', mode)
+        update_env_variable('MODEL_TYPE', new_model_type)
+        
+        # Detener servicios de captura actuales
         run_command(['sudo', 'pkill', '-f', 'traffic_capture'])
+        
+        # Dar tiempo para que termine
+        time.sleep(1)
+        
+        # Iniciar el nuevo script de captura
+        env_file = find_env_file()
+        if env_file:
+            parent_dir = env_file.parent
+            router_system_dir = parent_dir / 'router-system'
+            
+            if mode == 'packets':
+                script_path = router_system_dir / 'traffic_capture_packets.py'
+            else:
+                script_path = router_system_dir / 'traffic_capture.py'
+            
+            venv_python = parent_dir / 'venv' / 'bin' / 'python'
+            
+            if script_path.exists() and venv_python.exists():
+                # Iniciar el script en background
+                subprocess.Popen(
+                    ['sudo', str(venv_python), str(script_path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                message = f'Modo cambiado a {mode}. Script {script_path.name} iniciado.'
+            else:
+                message = f'Modo cambiado a {mode}. Inicia manualmente el script de captura.'
+        else:
+            message = f'Modo cambiado a {mode}. Reinicia el sistema para aplicar cambios.'
         
         return jsonify({
             'success': True,
-            'message': f'Modo cambiado a {mode}. Reinicia traffic_capture para aplicar cambios.',
-            'new_mode': mode
+            'message': message,
+            'new_mode': mode,
+            'new_model_type': new_model_type
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-model_server.py - Servidor de modelo Deep Learning (DL)
-Recibe archivos PCAP y clasifica dispositivos IoT usando el modelo DL
+model_server.py - Servidor de modelo Deep Learning (LSTM/CNN)
+Recibe paquetes de red (PCAPs) y clasifica dispositivos IoT usando redes neuronales.
 """
 
 from flask import Flask, request, jsonify, render_template_string
@@ -9,28 +9,35 @@ import requests
 import logging
 import time
 from datetime import datetime
+import pickle
+import numpy as np
 import os
-import sys
-import tempfile
-from pathlib import Path
+import json
+from io import BytesIO
 
-# Agregar el directorio inference al path para importar
-INFERENCE_DIR = os.path.join(os.path.dirname(__file__), 'inference')
-sys.path.insert(0, INFERENCE_DIR)
-
-# Importar el clasificador
+# TensorFlow/Keras
 try:
-    from classify_pcap import IoTClassifier
-    CLASSIFIER_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠ Advertencia: No se pudo importar IoTClassifier: {e}")
-    CLASSIFIER_AVAILABLE = False
+    import tensorflow as tf
+    from tensorflow import keras
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    logging.warning("TensorFlow no disponible")
+
+# Scapy para procesar PCAPs
+try:
+    from scapy.all import rdpcap, Raw, IP, TCP, UDP, ICMP
+    SCAPY_AVAILABLE = True
+except ImportError:
+    SCAPY_AVAILABLE = False
+    logging.warning("Scapy no disponible")
 
 # Configuración
 app = Flask(__name__)
 
 # Configuración del firewall
-FIREWALL_URL = os.getenv('FIREWALL_URL', 'http://192.168.50.1:5000')
+FIREWALL_PORT = os.getenv('FIREWALL_PORT', '5000')
+FIREWALL_URL = f'http://localhost:{FIREWALL_PORT}'
 
 # Configuración de logging
 logging.basicConfig(
@@ -39,466 +46,825 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Paths del modelo
+MODEL_PATH = 'inference/best_model.keras'
+ENCODER_PATH = 'inference/label_encoder.pkl'
+CONFIG_PATH = 'inference/model_config.json'
+
 # Variables globales
-classifier = None
-MODEL_LOADED = False
-
-# Estadísticas
-stats = {
-    'pcap_received': 0,
-    'predictions_made': 0,
-    'firewall_updates': 0,
-    'last_pcap': None,
-    'last_prediction': None,
-    'last_firewall_update': None,
-    'errors': 0
-}
-
-# Buffer para almacenar las últimas predicciones
-recent_predictions = []
-MAX_RECENT_PREDICTIONS = 50
-
-# Mapeo de dispositivos IoT a categorías de seguridad/tráfico
-# Puedes personalizar este mapeo según tus necesidades
-DEVICE_TO_CATEGORY = {
-    # Multimedia devices
-    'Amazon_Echo': 'MULTIMEDIA',
-    'Smart_TV': 'MULTIMEDIA',
-    'Chromecast': 'MULTIMEDIA',
-    
-    # Smart controls
-    'SmartThings': 'SMART_CONTROLS',
-    'TP-Link_Plug': 'SMART_CONTROLS',
-    'WeMo_Plug': 'SMART_CONTROLS',
-    'Philips_Hue': 'SMART_CONTROLS',
-    
-    # Sensors
-    'Netatmo_Weather': 'SENSORS',
-    'Withings_Sleep': 'SENSORS',
-    
-    # Computing/Network
-    'iPhone': 'COMPUTING',
-    'MacBook': 'COMPUTING',
-    'Android_Phone': 'COMPUTING',
-    
-    # Agregar más según tu modelo
-}
+model = None
+label_encoder = None
+model_config = None
+CATEGORIES = []
+MAX_LEN = 500  # Máximo número de paquetes por secuencia
 
 def load_model():
-    """Cargar el modelo Deep Learning"""
-    global classifier, MODEL_LOADED
-    
-    if not CLASSIFIER_AVAILABLE:
-        logger.error("❌ Clasificador no disponible")
-        return False
+    """Cargar el modelo de Deep Learning y el encoder desde disco"""
+    global model, label_encoder, model_config, CATEGORIES, MAX_LEN
     
     try:
-        # Rutas de los archivos del modelo
-        model_path = os.path.join(INFERENCE_DIR, "best_model.keras")
-        encoder_path = os.path.join(INFERENCE_DIR, "label_encoder.pkl")
-        config_path = os.path.join(INFERENCE_DIR, "model_config.json")
+        if not TENSORFLOW_AVAILABLE:
+            logger.error("TensorFlow no está disponible. Instala con: pip install tensorflow")
+            return False
         
-        # Verificar que existan los archivos
-        for path in [model_path, encoder_path, config_path]:
-            if not os.path.exists(path):
-                logger.error(f"❌ Archivo no encontrado: {path}")
-                return False
+        # Cargar configuración
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, 'r') as f:
+                model_config = json.load(f)
+                CATEGORIES = model_config.get('class_names', [])
+                MAX_LEN = model_config.get('MAX_LEN', 500)
+                logger.info(f"✅ Configuración cargada: {len(CATEGORIES)} clases, MAX_LEN={MAX_LEN}")
+        else:
+            logger.warning(f"Archivo de configuración no encontrado: {CONFIG_PATH}")
         
-        # Inicializar clasificador
-        logger.info("🔧 Cargando modelo Deep Learning...")
-        classifier = IoTClassifier(model_path, encoder_path, config_path)
-        MODEL_LOADED = True
+        # Cargar modelo
+        if not os.path.exists(MODEL_PATH):
+            logger.error(f"No se encuentra el modelo: {MODEL_PATH}")
+            return False
         
-        logger.info("✅ Modelo DL cargado exitosamente")
-        logger.info(f"   Clases disponibles: {len(classifier.class_names)}")
+        model = keras.models.load_model(MODEL_PATH)
+        logger.info(f"✅ Modelo DL cargado exitosamente")
+        logger.info(f"   Arquitectura: {model.summary()}")
+        
+        # Cargar encoder
+        if not os.path.exists(ENCODER_PATH):
+            logger.error(f"No se encuentra el encoder: {ENCODER_PATH}")
+            return False
+        
+        with open(ENCODER_PATH, 'rb') as f:
+            label_encoder = pickle.load(f)
+        
+        # Verificar categorías del encoder
+        if hasattr(label_encoder, 'classes_'):
+            CATEGORIES = label_encoder.classes_.tolist()
+        
+        logger.info(f"✅ Label encoder cargado")
+        logger.info(f"   Clases: {CATEGORIES}")
         
         return True
     
     except Exception as e:
-        logger.error(f"❌ Error cargando modelo: {e}")
+        logger.error(f"Error cargando modelo: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
-def send_to_firewall(categories):
-    """Enviar categorías al firewall"""
+# Estadísticas
+stats = {
+    'pcap_received': 0,
+    'packets_processed': 0,
+    'predictions_made': 0,
+    'firewall_updates': 0,
+    'last_pcap': None,
+    'last_prediction': None,
+    'last_firewall_update': None
+}
+
+# Buffer para almacenar predicciones recientes
+recent_predictions = []
+MAX_RECENT = 50
+
+# Mapeo de categorías a tipos de amenaza para el firewall
+CATEGORY_TO_THREAT = {
+    'Alexa': 'Alexa',
+    'SmartSpeaker': 'SmartSpeaker',
+    'IndoorCamera': 'IndoorCamera',
+    'SecurityCamera': 'SecurityCamera',
+    'MonitorCamera': 'MonitorCamera',
+    'MotionSensor': 'MotionSensor',
+    'EnvironmentalSensor': 'EnvironmentalSensor',
+    'HealthSensor': 'HealthSensor',
+    'SmartPlug': 'SmartPlug',
+    'SmartBulb': 'SmartBulb',
+    'SmartLock': 'SmartLock',
+    'Hub': 'Hub',
+    'Printer': 'Printer',
+    'Other': 'unknown_device'
+}
+
+def get_threat_type(category):
+    """Obtener tipo de amenaza para una categoría, con fallback"""
+    return CATEGORY_TO_THREAT.get(category, 'unknown_device')
+
+# Diccionario para rastrear predicciones por dispositivo IP
+device_predictions = {}
+
+# Red local detectada dinámicamente
+local_network = None
+
+def detect_local_network():
+    """Detectar la red local dinámicamente"""
+    global local_network
     try:
-        logger.info(f"📤 Enviando categorías al firewall: {categories}")
+        import netifaces
+        import ipaddress
+        
+        private_networks = []
+        for interface in netifaces.interfaces():
+            addrs = netifaces.ifaddresses(interface)
+            if netifaces.AF_INET in addrs:
+                for addr_info in addrs[netifaces.AF_INET]:
+                    ip = addr_info.get('addr', '')
+                    netmask = addr_info.get('netmask', '')
+                    
+                    if ip.startswith('127.'):
+                        continue
+                    
+                    if ip.startswith('192.168.') or ip.startswith('10.') or \
+                       (ip.startswith('172.') and 16 <= int(ip.split('.')[1]) <= 31):
+                        network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                        private_networks.append((interface, ip, str(network)))
+        
+        # Priorizar redes 192.168.50.x
+        for iface, ip, network in private_networks:
+            if '192.168.50.' in network:
+                local_network = network
+                logger.info(f"Red local detectada (AP): {local_network} en interfaz {iface}")
+                return local_network
+        
+        if private_networks:
+            iface, ip, network = private_networks[0]
+            local_network = network
+            logger.info(f"Red local detectada: {local_network} en interfaz {iface}")
+            return local_network
+        
+    except Exception as e:
+        logger.warning(f"No se pudo detectar la red local: {e}")
+    
+    local_network = '192.168.50.0/24'
+    logger.info(f"Usando red local por defecto: {local_network}")
+    return local_network
+
+def is_local_ip(ip):
+    """Verificar si una IP pertenece a la red local"""
+    global local_network
+    
+    if local_network is None:
+        detect_local_network()
+    
+    try:
+        import ipaddress
+        ip_obj = ipaddress.IPv4Address(ip)
+        network_obj = ipaddress.IPv4Network(local_network, strict=False)
+        return ip_obj in network_obj
+    except Exception as e:
+        logger.warning(f"Error validando IP local {ip}: {e}")
+        return False
+
+def is_valid_ip(ip):
+    """Verificar si una IP es válida"""
+    if not ip or ip == '0.0.0.0':
+        return False
+    
+    try:
+        import ipaddress
+        if local_network:
+            network_obj = ipaddress.IPv4Network(local_network, strict=False)
+            gateway_ip = str(network_obj.network_address + 1)
+            if ip == gateway_ip:
+                return False
+    except:
+        if ip.endswith('.1'):
+            return False
+    
+    try:
+        parts = ip.split('.')
+        if len(parts) != 4:
+            return False
+        return all(0 <= int(part) <= 255 for part in parts)
+    except:
+        return False
+
+def update_device_prediction(ip, category):
+    """Actualizar predicción para un dispositivo y enviar al firewall si es necesario"""
+    global device_predictions
+    
+    if ip not in device_predictions:
+        device_predictions[ip] = {}
+    
+    # Incrementar contador para esta categoría
+    if category not in device_predictions[ip]:
+        device_predictions[ip][category] = 0
+    device_predictions[ip][category] += 1
+    
+    # Obtener categoría mayoritaria
+    majority_category = max(device_predictions[ip], key=device_predictions[ip].get)
+    confidence = device_predictions[ip][majority_category]
+    
+    # Enviar al firewall solo si tenemos suficiente confianza (3+ predicciones)
+    if confidence >= 3:
+        threat_type = get_threat_type(majority_category)
+        success = update_firewall_all()
+        
+        if success:
+            # Resetear contador para no enviar continuamente
+            device_predictions[ip] = {majority_category: 1}
+
+def update_firewall_all():
+    """Enviar todas las clasificaciones de dispositivos al firewall agrupadas por categoría"""
+    try:
+        # Agrupar dispositivos por threat_type (categoría de bloqueo)
+        categories = {}
+        
+        for ip, pred_counts in device_predictions.items():
+            if pred_counts:
+                # Obtener la categoría mayoritaria para este dispositivo
+                majority_class = max(pred_counts, key=pred_counts.get)
+                confidence = pred_counts[majority_class]
+                
+                # Solo incluir dispositivos con confianza >= 3
+                if confidence >= 3:
+                    threat_type = get_threat_type(majority_class)
+                    
+                    if threat_type not in categories:
+                        categories[threat_type] = []
+                    
+                    # Añadir IP si no está ya en la lista
+                    if ip not in categories[threat_type]:
+                        categories[threat_type].append(ip)
+        
+        # Si no hay dispositivos clasificados, no enviar nada
+        if not categories:
+            return False
+        
+        # Enviar al firewall con el formato correcto
+        data = {
+            'categories': categories
+        }
         
         response = requests.post(
             f'{FIREWALL_URL}/update_categories',
-            json={'categories': categories},
-            timeout=5
+            json=data,
+            timeout=2
         )
         
         if response.status_code == 200:
-            logger.info(f"✅ Firewall actualizado exitosamente")
             stats['firewall_updates'] += 1
             stats['last_firewall_update'] = datetime.now().isoformat()
+            total_ips = sum(len(ips) for ips in categories.values())
+            logger.info(f"✅ Firewall actualizado: {len(categories)} categorías, {total_ips} dispositivos")
+            for cat, ips in categories.items():
+                logger.info(f"   - {cat}: {', '.join(ips)}")
             return True
         else:
-            logger.warning(f"⚠ Error actualizando firewall: {response.status_code}")
+            logger.warning(f"Error actualizando firewall: {response.status_code}")
             return False
     
     except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Error conectando al firewall: {e}")
+        logger.error(f"Error conectando al firewall: {e}")
         return False
     except Exception as e:
-        logger.error(f"❌ Error inesperado: {e}")
+        logger.error(f"Error inesperado: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
-def device_to_categories(device_name, src_ip=None):
+def extract_packet_features(packet):
+    """Extraer features de un paquete individual
+    
+    Retorna un vector de features para el paquete.
+    Basado en características como tamaño, protocolo, flags, etc.
     """
-    Convertir un dispositivo clasificado a formato de categorías del firewall
+    features = []
+    
+    try:
+        # Feature 1: Tamaño del paquete
+        pkt_size = len(packet)
+        features.append(pkt_size)
+        
+        # Si el modelo espera más features, se pueden agregar aquí
+        # Por ahora, para simplificar, usamos solo el tamaño
+        
+    except Exception as e:
+        logger.debug(f"Error extrayendo features de paquete: {e}")
+        features = [0]  # Feature por defecto
+    
+    return features
+
+def process_pcap_to_sequences(pcap_data):
+    """Procesar datos PCAP y convertir a secuencias para el modelo
     
     Args:
-        device_name: Nombre del dispositivo clasificado
-        src_ip: IP de origen (opcional)
+        pcap_data: Datos binarios del archivo PCAP
         
     Returns:
-        dict: Categorías en formato del firewall
+        Dict con IP de origen -> secuencia de features
     """
-    # Obtener categoría del dispositivo
-    category = DEVICE_TO_CATEGORY.get(device_name, 'UNKNOWN')
+    if not SCAPY_AVAILABLE:
+        logger.error("Scapy no disponible para procesar PCAP")
+        return {}
     
-    # Si tenemos IP, crear entrada específica
-    if src_ip:
-        return {
-            category: [src_ip]
-        }
+    try:
+        # Guardar temporalmente el PCAP
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp:
+            tmp.write(pcap_data)
+            tmp_path = tmp.name
+        
+        # Leer PCAP con scapy
+        packets = rdpcap(tmp_path)
+        os.unlink(tmp_path)
+        
+        logger.info(f"PCAP procesado: {len(packets)} paquetes")
+        
+        # Agrupar paquetes por IP de origen
+        ip_sequences = {}
+        
+        for packet in packets:
+            if IP in packet:
+                src_ip = packet[IP].src
+                
+                # Verificar que sea IP válida y local
+                if not is_valid_ip(src_ip) or not is_local_ip(src_ip):
+                    continue
+                
+                # Extraer features del paquete
+                pkt_features = extract_packet_features(packet)
+                
+                # Agregar a la secuencia de esta IP
+                if src_ip not in ip_sequences:
+                    ip_sequences[src_ip] = []
+                
+                ip_sequences[src_ip].append(pkt_features)
+        
+        logger.info(f"Dispositivos encontrados: {len(ip_sequences)}")
+        stats['packets_processed'] += len(packets)
+        
+        return ip_sequences
+    
+    except Exception as e:
+        logger.error(f"Error procesando PCAP: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {}
+
+def pad_sequence(sequence, max_len):
+    """Ajustar secuencia al tamaño esperado por el modelo (padding/truncate)"""
+    sequence = np.array(sequence)
+    
+    if len(sequence) > max_len:
+        # Truncar si es muy larga
+        return sequence[:max_len]
+    elif len(sequence) < max_len:
+        # Padding con ceros si es muy corta
+        padding = np.zeros((max_len - len(sequence), sequence.shape[1]))
+        return np.vstack([sequence, padding])
     else:
-        # Sin IP específica, solo indicar el tipo de dispositivo detectado
-        return {
-            category: []
-        }
+        return sequence
+
+def predict_from_sequences(ip_sequences):
+    """Realizar predicciones desde secuencias de paquetes
+    
+    Args:
+        ip_sequences: Dict de IP -> lista de features de paquetes
+        
+    Returns:
+        Número de predicciones realizadas
+    """
+    global model, label_encoder, recent_predictions
+    
+    if model is None or label_encoder is None:
+        logger.error("Modelo no cargado")
+        return 0
+    
+    try:
+        prediction_count = 0
+        
+        for src_ip, sequence in ip_sequences.items():
+            if len(sequence) == 0:
+                continue
+            
+            # Preparar secuencia para el modelo
+            padded_seq = pad_sequence(sequence, MAX_LEN)
+            
+            # Reshape para el modelo: (1, MAX_LEN, num_features)
+            X = np.expand_dims(padded_seq, axis=0)
+            
+            # Predecir
+            predictions_proba = model.predict(X, verbose=0)
+            predicted_class_idx = np.argmax(predictions_proba[0])
+            confidence = predictions_proba[0][predicted_class_idx]
+            
+            # Decodificar categoría
+            if hasattr(label_encoder, 'classes_'):
+                category = label_encoder.classes_[predicted_class_idx]
+            else:
+                category = CATEGORIES[predicted_class_idx] if predicted_class_idx < len(CATEGORIES) else 'Unknown'
+            
+            # Guardar predicción
+            prediction_info = {
+                'ip': src_ip,
+                'category': category,
+                'confidence': float(confidence),
+                'packets': len(sequence),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            recent_predictions.append(prediction_info)
+            if len(recent_predictions) > MAX_RECENT:
+                recent_predictions = recent_predictions[-MAX_RECENT:]
+            
+            # Actualizar dispositivo
+            update_device_prediction(src_ip, category)
+            prediction_count += 1
+            
+            logger.info(f"Predicción: {src_ip} -> {category} (confianza: {confidence:.2%}, {len(sequence)} pkts)")
+        
+        stats['predictions_made'] += prediction_count
+        stats['last_prediction'] = datetime.now().isoformat()
+        
+        return prediction_count
+    
+    except Exception as e:
+        logger.error(f"Error en predicción: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return 0
+
+# ==================== ENDPOINTS ====================
 
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint de health check"""
+    model_status = 'loaded' if model is not None else 'not_loaded'
+    
     return jsonify({
-        'status': 'ok' if MODEL_LOADED else 'model_not_loaded',
-        'model_loaded': MODEL_LOADED,
-        'classifier_available': CLASSIFIER_AVAILABLE,
+        'status': 'ok',
+        'model_status': model_status,
+        'model_type': 'deep_learning',
+        'model_classes': CATEGORIES,
+        'max_len': MAX_LEN,
+        'tensorflow_available': TENSORFLOW_AVAILABLE,
+        'scapy_available': SCAPY_AVAILABLE,
         'timestamp': datetime.now().isoformat(),
         'stats': stats
     })
 
 @app.route('/pcap', methods=['POST'])
 def receive_pcap():
-    """Recibir archivo PCAP y clasificar con el modelo DL"""
+    """Recibir archivo PCAP del sistema de captura y clasificar dispositivos"""
     global recent_predictions
     
-    if not MODEL_LOADED:
-        logger.error("❌ Modelo no cargado")
-        return jsonify({
-            'error': 'Model not loaded',
-            'status': 'error'
-        }), 503
-    
     if 'file' not in request.files:
-        logger.warning("⚠ No se recibió archivo PCAP")
+        logger.warning("No se recibió archivo PCAP")
         return jsonify({'error': 'No file provided'}), 400
+    
+    if model is None:
+        logger.error("Modelo no cargado")
+        return jsonify({'error': 'Model not loaded'}), 500
     
     pcap_file = request.files['file']
     logger.info(f"📦 PCAP recibido: {pcap_file.filename}")
     
-    # Guardar temporalmente el archivo
-    temp_pcap = None
+    # Actualizar estadísticas
+    stats['pcap_received'] += 1
+    stats['last_pcap'] = datetime.now().isoformat()
+    
     try:
-        # Crear archivo temporal
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.pcap', delete=False) as f:
-            temp_pcap = f.name
-            pcap_file.save(temp_pcap)
+        # Leer contenido del PCAP
+        pcap_data = pcap_file.read()
         
-        logger.info(f"💾 PCAP guardado temporalmente: {temp_pcap}")
+        # Procesar PCAP y extraer secuencias por dispositivo
+        ip_sequences = process_pcap_to_sequences(pcap_data)
         
-        # Actualizar estadísticas
-        stats['pcap_received'] += 1
-        stats['last_pcap'] = datetime.now().isoformat()
-        
-        # Clasificar con el modelo DL
-        logger.info("🔄 Clasificando tráfico con modelo DL...")
-        result = classifier.classify_pcap(temp_pcap, max_pkts=1000, verbose=False)
-        
-        if 'error' in result:
-            logger.error(f"❌ Error en clasificación: {result['error']}")
-            stats['errors'] += 1
+        if not ip_sequences:
+            logger.info("No se encontraron dispositivos IoT en el PCAP")
             return jsonify({
-                'status': 'error',
-                'error': result['error']
-            }), 500
+                'status': 'processed',
+                'message': 'No IoT devices found in PCAP',
+                'filename': pcap_file.filename,
+                'predictions_count': 0
+            }), 200
         
-        # Extraer resultado
-        device = result['classified_device']
-        confidence = result['confidence']
+        # Realizar predicciones
+        prediction_count = predict_from_sequences(ip_sequences)
         
-        logger.info(f"✅ Dispositivo clasificado: {device} (confianza: {confidence*100:.2f}%)")
-        
-        # Actualizar estadísticas
-        stats['predictions_made'] += 1
-        stats['last_prediction'] = {
-            'device': device,
-            'confidence': confidence,
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        # Guardar predicción reciente
-        prediction_record = {
-            'timestamp': datetime.now().isoformat(),
-            'device': device,
-            'confidence': confidence,
-            'pcap_file': pcap_file.filename,
-            'total_packets': result['total_packets'],
-            'valid_packets': result['valid_packets']
-        }
-        recent_predictions.insert(0, prediction_record)
-        recent_predictions = recent_predictions[:MAX_RECENT_PREDICTIONS]
-        
-        # Convertir a categorías del firewall
-        categories = device_to_categories(device)
-        
-        # Enviar al firewall
-        send_to_firewall(categories)
+        logger.info(f"✅ PCAP procesado: {prediction_count} predicciones realizadas")
         
         return jsonify({
             'status': 'processed',
-            'message': 'PCAP analyzed successfully',
-            'result': {
-                'device': device,
-                'confidence': float(confidence),
-                'category': list(categories.keys())[0] if categories else 'UNKNOWN',
-                'total_packets': result['total_packets'],
-                'valid_packets': result['valid_packets']
-            },
-            'firewall_updated': True
+            'message': f'{prediction_count} devices classified',
+            'filename': pcap_file.filename,
+            'predictions_count': prediction_count,
+            'devices': list(ip_sequences.keys())
         }), 200
     
     except Exception as e:
-        logger.error(f"❌ Error procesando PCAP: {e}")
-        stats['errors'] += 1
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
-    
-    finally:
-        # Limpiar archivo temporal
-        if temp_pcap and os.path.exists(temp_pcap):
-            try:
-                os.remove(temp_pcap)
-                logger.debug(f"🗑️  Archivo temporal eliminado: {temp_pcap}")
-            except Exception as e:
-                logger.warning(f"⚠ No se pudo eliminar archivo temporal: {e}")
+        logger.error(f"Error procesando PCAP: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/flows', methods=['POST'])
+def receive_flows():
+    """Endpoint de compatibilidad (el modelo DL no usa flows, usa PCAPs)"""
+    logger.info("Endpoint /flows llamado, pero modelo DL requiere PCAPs")
+    return jsonify({
+        'status': 'info',
+        'message': 'This Deep Learning model requires PCAP files, not flows. Use /pcap endpoint instead.',
+        'model_type': 'deep_learning'
+    }), 200
 
 @app.route('/stats', methods=['GET'])
 def get_stats():
     """Obtener estadísticas del modelo"""
     return jsonify({
         'stats': stats,
-        'recent_predictions': recent_predictions[:10]  # Últimas 10
+        'model_info': {
+            'type': 'deep_learning',
+            'classes': CATEGORIES,
+            'max_sequence_length': MAX_LEN,
+            'model_config': model_config
+        },
+        'devices': {
+            ip: {
+                'predictions': pred_counts,
+                'majority_class': max(pred_counts, key=pred_counts.get) if pred_counts else None
+            }
+            for ip, pred_counts in device_predictions.items()
+        },
+        'recent_predictions': recent_predictions[-10:],  # Últimas 10
+        'local_network': local_network,
+        'timestamp': datetime.now().isoformat()
     })
 
 @app.route('/predictions', methods=['GET'])
 def get_predictions():
-    """Obtener todas las predicciones recientes"""
+    """Obtener predicciones recientes"""
     return jsonify({
         'predictions': recent_predictions,
-        'total': len(recent_predictions)
+        'count': len(recent_predictions),
+        'timestamp': datetime.now().isoformat()
     })
 
-# Dashboard HTML simple
+@app.route('/devices', methods=['GET'])
+def get_devices():
+    """Obtener dispositivos detectados"""
+    devices_list = []
+    
+    for ip, pred_counts in device_predictions.items():
+        if pred_counts:
+            majority_class = max(pred_counts, key=pred_counts.get)
+            confidence = pred_counts[majority_class]
+            
+            devices_list.append({
+                'ip': ip,
+                'device_type': majority_class,
+                'confidence': confidence,
+                'predictions': pred_counts,
+                'threat_type': get_threat_type(majority_class)
+            })
+    
+    return jsonify({
+        'devices': devices_list,
+        'count': len(devices_list),
+        'timestamp': datetime.now().isoformat()
+    })
+
+# ==================== DASHBOARD HTML ====================
+
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Modelo DL - Dashboard</title>
+    <title>Deep Learning Model Dashboard</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            margin: 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 10px;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }
-        .stat-card {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            color: #fff;
             padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 30px; font-size: 2.5em; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+        .info { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; margin-bottom: 20px; backdrop-filter: blur(10px); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .card {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.18);
+        }
+        .card h2 { font-size: 1.2em; margin-bottom: 15px; color: #fff; }
+        .stat { font-size: 2.5em; font-weight: bold; color: #4ade80; text-align: center; margin: 10px 0; }
+        .device-list { max-height: 400px; overflow-y: auto; }
+        .device {
+            background: rgba(255,255,255,0.1);
+            padding: 10px;
+            margin-bottom: 10px;
             border-radius: 8px;
-            text-align: center;
+            border-left: 4px solid #4ade80;
         }
-        .stat-card h3 {
-            margin: 0;
-            font-size: 2em;
+        .device strong { color: #4ade80; }
+        .predictions-list { max-height: 300px; overflow-y: auto; }
+        .prediction {
+            background: rgba(255,255,255,0.08);
+            padding: 8px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            font-size: 0.9em;
         }
-        .stat-card p {
-            margin: 5px 0 0 0;
-            opacity: 0.9;
-        }
-        .predictions {
-            margin-top: 30px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th {
-            background: #3498db;
-            color: white;
-        }
-        .status {
+        .badge {
             display: inline-block;
             padding: 4px 12px;
-            border-radius: 12px;
+            border-radius: 20px;
             font-size: 0.85em;
-            font-weight: bold;
+            margin: 2px;
+            background: rgba(74, 222, 128, 0.3);
         }
-        .status.ok {
-            background: #2ecc71;
+        button {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
             color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s;
         }
-        .status.error {
-            background: #e74c3c;
-            color: white;
-        }
-        .confidence {
-            font-weight: bold;
-            color: #27ae60;
-        }
+        button:hover { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
+        .status-ok { color: #4ade80; }
+        .status-error { color: #f87171; }
     </style>
-    <script>
-        function refreshStats() {
-            fetch('/stats')
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('pcap-count').textContent = data.stats.pcap_received;
-                    document.getElementById('pred-count').textContent = data.stats.predictions_made;
-                    document.getElementById('fw-count').textContent = data.stats.firewall_updates;
-                    document.getElementById('err-count').textContent = data.stats.errors;
-                    
-                    // Última predicción
-                    if (data.stats.last_prediction) {
-                        document.getElementById('last-device').textContent = data.stats.last_prediction.device;
-                        document.getElementById('last-confidence').textContent = 
-                            (data.stats.last_prediction.confidence * 100).toFixed(2) + '%';
-                    }
-                    
-                    // Predicciones recientes
-                    const tbody = document.getElementById('predictions-tbody');
-                    tbody.innerHTML = '';
-                    data.recent_predictions.forEach(pred => {
-                        const row = tbody.insertRow();
-                        row.innerHTML = `
-                            <td>${new Date(pred.timestamp).toLocaleString()}</td>
-                            <td><strong>${pred.device}</strong></td>
-                            <td class="confidence">${(pred.confidence * 100).toFixed(2)}%</td>
-                            <td>${pred.valid_packets} / ${pred.total_packets}</td>
-                        `;
-                    });
-                });
-        }
-        
-        setInterval(refreshStats, 5000);
-        window.onload = refreshStats;
-    </script>
 </head>
 <body>
     <div class="container">
-        <h1>🎯 Modelo Deep Learning - Dashboard</h1>
+        <h1>🧠 Deep Learning IoT Classifier</h1>
         
-        <div class="stats">
-            <div class="stat-card">
-                <h3 id="pcap-count">0</h3>
-                <p>PCAPs Recibidos</p>
+        <div class="info">
+            <p><strong>Estado del Modelo:</strong> <span id="modelStatus" class="status-ok">Cargando...</span></p>
+            <p><strong>Tipo:</strong> Deep Learning (LSTM/CNN)</p>
+            <p><strong>Clases:</strong> <span id="modelClasses">-</span></p>
+            <p><strong>Red Local:</strong> <span id="localNetwork">-</span></p>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Estadísticas</h2>
+                <div class="stat" id="pcapCount">0</div>
+                <p style="text-align: center;">PCAPs Recibidos</p>
+                <hr style="margin: 15px 0; border: 0; border-top: 1px solid rgba(255,255,255,0.2);">
+                <div class="stat" id="predCount" style="font-size: 2em;">0</div>
+                <p style="text-align: center;">Predicciones Realizadas</p>
             </div>
-            <div class="stat-card">
-                <h3 id="pred-count">0</h3>
-                <p>Predicciones</p>
+            
+            <div class="card">
+                <h2>🔥 Actualizaciones Firewall</h2>
+                <div class="stat" id="firewallCount">0</div>
+                <p style="text-align: center;">Reglas Actualizadas</p>
+                <hr style="margin: 15px 0; border: 0; border-top: 1px solid rgba(255,255,255,0.2);">
+                <p><strong>Última actualización:</strong></p>
+                <p id="lastUpdate" style="font-size: 0.9em;">-</p>
             </div>
-            <div class="stat-card">
-                <h3 id="fw-count">0</h3>
-                <p>Updates al Firewall</p>
-            </div>
-            <div class="stat-card">
-                <h3 id="err-count">0</h3>
-                <p>Errores</p>
+            
+            <div class="card">
+                <h2>📦 Paquetes Procesados</h2>
+                <div class="stat" id="packetCount">0</div>
+                <p style="text-align: center;">Paquetes Analizados</p>
             </div>
         </div>
         
-        <div class="predictions">
-            <h2>🔥 Última Predicción</h2>
-            <p><strong>Dispositivo:</strong> <span id="last-device">-</span></p>
-            <p><strong>Confianza:</strong> <span id="last-confidence">-</span></p>
+        <div class="grid">
+            <div class="card">
+                <h2>🖥️ Dispositivos Detectados (<span id="deviceCount">0</span>)</h2>
+                <div class="device-list" id="deviceList">
+                    <p style="opacity: 0.6;">No hay dispositivos detectados aún...</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🎯 Predicciones Recientes</h2>
+                <div class="predictions-list" id="predictionsList">
+                    <p style="opacity: 0.6;">No hay predicciones aún...</p>
+                </div>
+            </div>
         </div>
         
-        <div class="predictions">
-            <h2>📊 Predicciones Recientes</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Dispositivo</th>
-                        <th>Confianza</th>
-                        <th>Paquetes</th>
-                    </tr>
-                </thead>
-                <tbody id="predictions-tbody">
-                </tbody>
-            </table>
+        <div style="text-align: center; margin-top: 20px;">
+            <button onclick="loadData()">🔄 Actualizar</button>
+            <button onclick="window.location.href='/stats'">📈 Ver JSON Stats</button>
         </div>
     </div>
+    
+    <script>
+        async function loadData() {
+            try {
+                // Cargar stats
+                const statsRes = await fetch('/stats');
+                const stats = await statsRes.json();
+                
+                // Actualizar estadísticas
+                document.getElementById('pcapCount').textContent = stats.stats.pcap_received || 0;
+                document.getElementById('predCount').textContent = stats.stats.predictions_made || 0;
+                document.getElementById('firewallCount').textContent = stats.stats.firewall_updates || 0;
+                document.getElementById('packetCount').textContent = stats.stats.packets_processed || 0;
+                
+                const lastUpdate = stats.stats.last_firewall_update;
+                document.getElementById('lastUpdate').textContent = lastUpdate ? 
+                    new Date(lastUpdate).toLocaleString() : 'Nunca';
+                
+                // Actualizar info del modelo
+                document.getElementById('modelClasses').textContent = 
+                    stats.model_info.classes.length + ' categorías';
+                document.getElementById('localNetwork').textContent = stats.local_network || 'Detectando...';
+                
+                // Cargar dispositivos
+                const devicesRes = await fetch('/devices');
+                const devicesData = await devicesRes.json();
+                
+                const deviceList = document.getElementById('deviceList');
+                const deviceCount = document.getElementById('deviceCount');
+                
+                if (devicesData.devices.length === 0) {
+                    deviceList.innerHTML = '<p style="opacity: 0.6;">No hay dispositivos detectados aún...</p>';
+                    deviceCount.textContent = '0';
+                } else {
+                    deviceCount.textContent = devicesData.devices.length;
+                    deviceList.innerHTML = devicesData.devices.map(dev => `
+                        <div class="device">
+                            <strong>${dev.ip}</strong><br>
+                            <span class="badge">${dev.device_type}</span>
+                            <span class="badge">${dev.threat_type}</span><br>
+                            <small>Confianza: ${dev.confidence} predicciones</small>
+                        </div>
+                    `).join('');
+                }
+                
+                // Predicciones recientes
+                if (stats.recent_predictions && stats.recent_predictions.length > 0) {
+                    document.getElementById('predictionsList').innerHTML = 
+                        stats.recent_predictions.reverse().map(pred => `
+                            <div class="prediction">
+                                <strong>${pred.ip}</strong> → ${pred.category}<br>
+                                <small>Confianza: ${(pred.confidence * 100).toFixed(1)}% | ${pred.packets} pkts</small>
+                            </div>
+                        `).join('');
+                }
+                
+                // Verificar health
+                const healthRes = await fetch('/health');
+                const health = await healthRes.json();
+                
+                const statusEl = document.getElementById('modelStatus');
+                if (health.model_status === 'loaded') {
+                    statusEl.textContent = '✅ Modelo Cargado';
+                    statusEl.className = 'status-ok';
+                } else {
+                    statusEl.textContent = '❌ Modelo No Cargado';
+                    statusEl.className = 'status-error';
+                }
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        // Cargar datos al inicio
+        loadData();
+        
+        // Auto-refresh cada 5 segundos
+        setInterval(loadData, 5000);
+    </script>
 </body>
 </html>
 """
 
 @app.route('/', methods=['GET'])
 def dashboard():
-    """Dashboard web"""
+    """Dashboard web principal"""
     return render_template_string(DASHBOARD_HTML)
 
+# ==================== MAIN ====================
+
 if __name__ == '__main__':
-    print("=" * 60)
-    print("🎯 Servidor de Modelo Deep Learning")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("🧠 Iniciando Servidor de Modelo Deep Learning")
+    logger.info("=" * 60)
+    
+    # Detectar red local
+    detect_local_network()
     
     # Cargar modelo
-    if load_model():
-        print(f"✅ Modelo cargado correctamente")
-        print(f"📡 Escuchando en puerto 5002")
-        print(f"🔗 Dashboard: http://localhost:5002")
-        print(f"🔗 Health: http://localhost:5002/health")
-        print(f"🔗 Stats: http://localhost:5002/stats")
-        print("=" * 60)
-        
-        # Iniciar servidor
-        app.run(host='0.0.0.0', port=5002, debug=False)
-    else:
-        print("❌ No se pudo cargar el modelo")
-        print("Verifica que existan los archivos:")
-        print("  - inference/best_model.keras")
-        print("  - inference/label_encoder.pkl")
-        print("  - inference/model_config.json")
-        sys.exit(1)
+    if not load_model():
+        logger.error("❌ No se pudo cargar el modelo. Saliendo...")
+        exit(1)
+    
+    # Obtener puerto desde variables de entorno o usar 5002 por defecto
+    port = int(os.getenv('MODEL_DL_PORT', '5002'))
+    
+    logger.info("")
+    logger.info(f"🌐 Servidor iniciado en http://0.0.0.0:{port}")
+    logger.info(f"📊 Dashboard: http://localhost:{port}/")
+    logger.info(f"💚 Health: http://localhost:{port}/health")
+    logger.info(f"📦 PCAP endpoint: POST http://localhost:{port}/pcap")
+    logger.info("")
+    logger.info("Listo para recibir PCAPs y clasificar dispositivos IoT...")
+    logger.info("=" * 60)
+    
+    # Iniciar servidor Flask
+    app.run(host='0.0.0.0', port=port, debug=False)
