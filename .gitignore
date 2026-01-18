@@ -22,6 +22,8 @@ build/
 backups/
 .env
 firewall/.env
+firewall/router-system/logs
+firewall/router-system/backups
 */.env
 
 # Logs
