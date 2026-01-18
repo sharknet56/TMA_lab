@@ -20,18 +20,18 @@ fi
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
         MODEL_DIR="$PROJECT_DIR/model_ml"
-        MODEL_PORT=5001
-        MODEL_LOG="/tmp/model_server.log"
+        MODEL_PORT=$MODEL_ML_PORT
+        MODEL_LOG=$MODEL_ML_LOG
         ;;
     "simulated_flows"|"simulated")
         MODEL_DIR="$PROJECT_DIR/simulated-model"
-        MODEL_PORT=8000
-        MODEL_LOG="/tmp/model.log"
+        MODEL_PORT=$MODEL_SIMULATED_PORT
+        MODEL_LOG=$MODEL_SIMULATED_LOG
         ;;
     "dl_packets")
         MODEL_DIR="$PROJECT_DIR/model_dl"
-        MODEL_PORT=5002
-        MODEL_LOG="/tmp/model_dl.log"
+        MODEL_PORT=$MODEL_DL_PORT
+        MODEL_LOG=$MODEL_DL_LOG
         ;;
     *)
         echo "❌ MODEL_TYPE desconocido: $MODEL_TYPE"
@@ -52,22 +52,21 @@ echo "🛑 Llamando a stop_all.sh..."
 sleep 2
 
 echo ""
-echo "=== Limpiando caché y logs ==="
+echo "=== Limpiando caché ==="
 find "$PROJECT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 find "$PROJECT_DIR" -type f -name "*.pyc" -delete 2>/dev/null
-sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log /tmp/traffic_capture.log
-echo "✓ Caché y logs eliminados"
+echo "✓ Caché eliminados"
 
 echo ""
 echo "=== Reiniciando servicios ==="
 echo "⏳ Iniciando Firewall Manager..."
 cd "$PROJECT_DIR/router-system"
-sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > /tmp/firewall.log 2>&1 &
+sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > $FIREWALL_LOG 2>&1 &
 FIREWALL_PID=$!
 sleep 2
 
 echo "⏳ Iniciando Dashboard..."
-sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > /tmp/dashboard.log 2>&1 &
+sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > $DASHBOARD_LOG 2>&1 &
 DASHBOARD_PID=$!
 sleep 2
 
@@ -76,10 +75,10 @@ sudo ./router-control.sh start
 sleep 5
 
 # Verificar que la red está configurada
-if ip addr show wlxc83a35b5a9f5 | grep -q "192.168.50"; then
-    echo "✓ Red configurada (192.168.50.0/24)"
+if ip addr show $AP_IFACE | grep -q "$AP_GATEWAY"; then
+    echo "✓ Red configurada ($AP_GATEWAY)"
 else
-    echo "⚠ Advertencia: La red 192.168.50.0/24 no está configurada"
+    echo "⚠ Advertencia: La red $AP_NETWORK no está configurada"
 fi
 
 echo "⏳ Iniciando modelo..."
@@ -94,10 +93,10 @@ sleep 3
 # Verificar detección de red en el modelo (solo para ml_flows)
 if [ "$MODEL_TYPE" = "ml_flows" ] || [ "$MODEL_TYPE" = "ml" ]; then
     DETECTED_NET=$(grep "Red local detectada" "$MODEL_LOG" 2>/dev/null | tail -1 | grep -oP '\d+\.\d+\.\d+\.\d+/\d+' || echo "")
-    if [ "$DETECTED_NET" = "192.168.50.0/24" ]; then
+    if [ "$DETECTED_NET" = $AP_NETWORK ]; then
         echo "✓ Red $DETECTED_NET detectada correctamente"
     elif [ -n "$DETECTED_NET" ]; then
-        echo "⚠ Advertencia: Modelo detectó red $DETECTED_NET (esperada: 192.168.50.0/24)"
+        echo "⚠ Advertencia: Modelo detectó red $DETECTED_NET (esperada: $AP_NETWORK)"
     fi
 fi
 
@@ -120,7 +119,7 @@ case "$MODEL_TYPE" in
         ;;
 esac
 
-sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > /tmp/traffic_capture.log 2>&1 &
+sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > $TRAFFIC_CAPTURE_LOG 2>&1 &
 TRAFFIC_PID=$!
 sleep 2
 
@@ -137,18 +136,18 @@ echo ""
 echo "=== URLs de acceso ==="
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
-        echo "  - Modelo ML: http://localhost:5001"
+        echo "  - Modelo ML: $MODEL_ML_URL"
         echo "  - Dashboard del modelo: http://localhost:5001/"
         ;;
     "simulated_flows"|"simulated")
-        echo "  - Modelo simulado: http://localhost:8000"
+        echo "  - Modelo simulado: $MODEL_SIMULATED_URL"
         ;;
     "dl_packets")
-        echo "  - Modelo DL: http://localhost:5002"
+        echo "  - Modelo DL: MODEL_DL_URL"
         ;;
 esac
-echo "  - Dashboard del router: http://192.168.50.1:8081"
-echo "  - Firewall API: http://192.168.50.1:5000/health"
+echo "  - Dashboard del router: http://$AP_GATEWAY:$DASHBOARD_PORT"
+echo "  - Firewall API: http://$AP_GATEWAY:$FIREWALL_PORT/health"
 echo ""
 echo "Para ver logs:"
 echo "  tail -f $MODEL_LOG"
