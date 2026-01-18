@@ -1,22 +1,8 @@
-# 🛡️ Sistema Router/Firewall con ML - Versión Final
+# 🛡️ Sistema Router/Firewall con ML
 
-Sistema completo de router WiFi con firewall dinámico controlado por Machine Learning para detección y bloqueo automático de amenazas de red.
+Sistema completo de router WiFi con firewall dinámico controlado por Machine Learning para detección y clasificación de dispositivos IoT.
 
-## 📋 Tabla de Contenidos
-
-- [Características](#-características)
-- [Arquitectura](#-arquitectura)
-- [Requisitos](#-requisitos)
-- [Instalación](#-instalación)
-- [Uso Rápido](#-uso-rápido)
-- [Interfaces Web](#-interfaces-web)
-- [API del Firewall](#-api-del-firewall)
-- [Gestión de Categorías](#-gestión-de-categorías)
-- [Troubleshooting](#-troubleshooting)
-
----
-
-## ✨ Características
+## 📋 Características
 
 ### Router WiFi
 - ✅ Punto de acceso WiFi configurable (WPA2)
@@ -29,682 +15,325 @@ Sistema completo de router WiFi con firewall dinámico controlado por Machine Le
 - ✅ Actualización en tiempo real vía API REST
 - ✅ Control granular por IP
 - ✅ Activar/Desactivar categorías sin perder IPs
-- ✅ Soporte CORS para interfaces web
 
 ### Captura de Tráfico
-- ✅ Captura de paquetes en formato PCAP
-- ✅ Análisis de flows de red
+- ✅ Captura de paquetes (PCAP) o flows (CICFlowMeter)
 - ✅ Envío automático al modelo ML
+- ✅ Modo configurable desde dashboard o .env
+
+### Modelos ML
+- ✅ **ml_flows**: Random Forest con flows (puerto 5001)
+- ✅ **simulated_flows**: Modelo simulado con flows (puerto 8000)
+- ✅ **dl_packets**: Deep Learning con packets (puerto 5002)
 
 ### Dashboard Web
 - ✅ Monitorización en tiempo real
-- ✅ Visualización de clientes conectados (IP + MAC)
-- ✅ Control de categorías (activar/desactivar)
+- ✅ Visualización de clientes conectados
+- ✅ Control de categorías y configuración
 - ✅ Estadísticas del sistema
 
-### Modelo ML Simulado
-- ✅ Interfaz web para bloqueo manual de IPs
-- ✅ Visualización de últimos 20 flows
-- ✅ Gestión de categorías
-- ✅ Actualización automática del firewall
-
 ---
 
-## 🏗️ Arquitectura
+## 🚀 Inicio Rápido
 
+### Instalación Completa (primera vez)
+```bash
+# 1. Copiar configuración de ejemplo
+cp .env.example .env
+
+# 2. Editar configuración (opcional)
+nano .env
+
+# 3. Inicializar sistema
+sudo ./init_all.sh
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    DISPOSITIVOS CLIENTES                     │
-│              (Móviles, Tablets, Laptops, IoT)                │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│              PUNTO DE ACCESO WiFi (wlxc83a35b5a9f5)         │
-│                    192.168.50.1/24                           │
-│                SSID: RouterFirewall                          │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    TRAFFIC CAPTURE                           │
-│              Captura paquetes y flows                        │
-│            Envía cada 30s PCAP y 10s flows                   │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                   MODELO ML (localhost:8000)                 │
-│              - Analiza tráfico (simulado)                    │
-│              - Interfaz web de control                       │
-│              - Visualización de flows                        │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│              FIREWALL MANAGER (192.168.50.1:5000)            │
-│              - API REST con CORS                             │
-│              - Gestión de categorías                         │
-│              - Aplicación de reglas iptables                 │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                     IPTABLES CHAINS                          │
-│              CATEGORY_FILTER → DROP bloqueadas               │
-│              FORWARD → ACCEPT permitidas                     │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                NAT → INTERNET (wlp2s0)                       │
-│              Mantiene conectividad del host                  │
-└─────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────┐
-│            DASHBOARD (192.168.50.1:8081)                     │
-│           - Monitorización en tiempo real                    │
-│           - Control de categorías                            │
-│           - Clientes conectados (IP + MAC)                   │
-└─────────────────────────────────────────────────────────────┘
+### Uso Diario
+```bash
+# Iniciar sistema
+sudo ./quick_start.sh
+
+# Detener sistema
+./stop_all.sh
+
+# Reiniciar sistema
+./restart_all.sh
 ```
 
 ---
 
-## 📦 Requisitos
+## ⚙️ Configuración
 
-### Hardware
-- **2 interfaces WiFi:**
-  - `wlp2s0`: Conexión a internet (integrada)
-  - `wlxc83a35b5a9f5`: USB WiFi con soporte modo AP
+### Archivo .env
 
-### Software
+Todas las variables del sistema están centralizadas en `.env`:
+
 ```bash
-# Paquetes del sistema
-sudo apt-get install -y \
-  hostapd \
-  dnsmasq \
-  iptables \
-  iproute2 \
-  net-tools \
-  wireless-tools \
-  python3 \
-  python3-pip \
-  python3-flask \
-  python3-flask-cors \
-  python3-scapy \
-  python3-requests \
-  python3-psutil
+# Interfaces
+AP_IFACE=wlxc83a35b5a9f5          # WiFi USB para AP
+INTERNET_IFACE=wlp2s0              # Conexión a internet
 
-# Verificar que el adaptador USB soporta modo AP
-iw list | grep -A 10 "Supported interface modes"
-# Debe aparecer "AP" en la lista
+# WiFi
+WIFI_SSID=RouterFirewall           # Nombre de la red
+WIFI_PASSWORD=SecurePass123        # Contraseña (mín 8 caracteres)
+WIFI_CHANNEL=6                     # Canal WiFi (1-11)
+
+# Red
+AP_NETWORK=192.168.50.0/24
+AP_GATEWAY=192.168.50.1
+AP_DHCP_START=192.168.50.20
+AP_DHCP_END=192.168.50.100
+
+# Modelo
+MODEL_TYPE=ml_flows                # ml_flows | simulated_flows | dl_packets
+
+# Captura de tráfico (automático según MODEL_TYPE)
+FLOW_BUFFER_SIZE=100
+FLOW_SEND_INTERVAL=10
+PCAP_BUFFER_SIZE=1000
+PCAP_SEND_INTERVAL=30
+```
+
+### Tipos de Modelos
+
+#### 1. ml_flows (Random Forest + Flows)
+```bash
+MODEL_TYPE=ml_flows
+```
+- Puerto: 5001
+- Script: `traffic_capture.py`
+- Datos: 79 features CICFlowMeter
+- Directorio: `model_ml/`
+
+#### 2. simulated_flows (Testing + Flows)
+```bash
+MODEL_TYPE=simulated_flows
+```
+- Puerto: 8000
+- Script: `traffic_capture.py`
+- Datos: 79 features CICFlowMeter
+- Directorio: `simulated-model/`
+
+#### 3. dl_packets (Deep Learning + Packets)
+```bash
+MODEL_TYPE=dl_packets
+```
+- Puerto: 5002
+- Script: `traffic_capture_packets.py`
+- Datos: Archivos PCAP completos
+- Directorio: `model_dl/`
+
+### Cambiar Configuración
+
+#### Método 1: Editor de texto
+```bash
+nano .env
+# Modificar variables
+sudo ./restart_all.sh
+```
+
+#### Método 2: Dashboard Web
+1. Abrir `http://192.168.50.1:8081`
+2. Sección "⚙️ Configuración"
+3. Cambiar modo de captura
+4. Clic en "Aplicar Cambio"
+
+#### Método 3: Script interactivo
+```bash
+./config_manager.sh
 ```
 
 ---
 
-## 🚀 Instalación
+## 📜 Scripts Disponibles
 
-### 1. Clonar o descargar el proyecto
-
-```bash
-cd ~/Documentos/UPC/TMA/project
-```
-
-### 2. Configurar permisos
+### `init_all.sh` - Instalación completa
+Instala y configura todo el sistema desde cero.
 
 ```bash
-cd router-system
-chmod +x router-control.sh install.sh
+sudo ./init_all.sh              # Usar model_ml
+sudo ./init_all.sh simulated    # Usar simulated-model
+sudo ./init_all.sh --reinstall  # Forzar reinstalación del router
 ```
 
-### 3. Instalar (opcional - solo primera vez)
+**Incluye:**
+- Limpieza de instalaciones previas
+- Instalación de dependencias
+- Configuración del router
+- Copia de `.env.example` a `.env`
+- Inicio de todos los servicios
+
+### `quick_start.sh` - Inicio rápido
+Inicia el sistema sin reinstalar (más rápido).
 
 ```bash
-sudo ./install.sh
+sudo ./quick_start.sh           # Usar configuración de .env
 ```
 
-El script de instalación:
-- Copia archivos a `/etc/router-system/`
-- Configura hostapd y dnsmasq
-- Crea archivos de configuración
+**Requisitos:**
+- Router ya instalado
+- Archivo `.env` configurado
 
-**Nota:** Ya está todo configurado, puedes saltar este paso.
+### `restart_all.sh` - Reinicio completo
+Reinicia todos los servicios manteniendo configuración.
+
+```bash
+./restart_all.sh                # Reiniciar sistema
+```
+
+**Nota:** Llama internamente a `stop_all.sh` para evitar duplicar código.
+
+### `stop_all.sh` - Detener todo
+Detiene todos los servicios y limpia recursos.
+
+```bash
+./stop_all.sh
+```
+
+**Acciones:**
+- Detiene procesos Python (dashboard, firewall, modelo, captura)
+- Detiene router (hostapd, dnsmasq)
+- Limpia PIDs y logs
+
+### `config_manager.sh` - Gestor de configuración
+Herramienta interactiva para modificar `.env`.
+
+```bash
+./config_manager.sh                           # Modo interactivo
+./config_manager.sh VARIABLE valor            # Modo directo
+```
+
+**Opciones:**
+1. Cambiar modo de captura
+2. Configurar interfaces
+3. Configurar WiFi
+4. Configurar red AP
+5. Ajustar buffers y tiempos
 
 ---
 
-## 🎮 Uso Rápido
+## 🌐 URLs de Acceso
 
-### Iniciar Todo el Sistema
+Una vez iniciado el sistema:
 
-#### 1. Iniciar el Modelo ML Simulado
-
-```bash
-cd ~/Documentos/UPC/TMA/project/simulated-model
-python3 model_server.py &
-```
-
-**Salida esperada:**
-```
-=== Modelo ML Simulado Iniciado ===
-Interfaz web disponible en: http://localhost:8000
-API escuchando en: http://0.0.0.0:8000
-Esperando tráfico del router...
-```
-
-#### 2. Iniciar el Router/Firewall
-
-```bash
-cd ~/Documentos/UPC/TMA/project/router-system
-sudo ./router-control.sh start
-```
-
-**Salida esperada:**
-```
-=== INICIANDO MODO ROUTER ===
-✓ Configurando interfaz AP (192.168.50.1)
-✓ Iniciando punto de acceso WiFi
-  SSID: RouterFirewall
-  Password: tma12345
-✓ Iniciando servidor DHCP
-✓ Configurando NAT y routing
-✓ Iniciando firewall manager (puerto 5000)
-✓ Iniciando captura de tráfico
-✓ Iniciando dashboard web (puerto 8081)
-
-=== MODO ROUTER ACTIVO ===
-
-Conecta tus dispositivos a:
-  Red WiFi: RouterFirewall
-  Contraseña: tma12345
-
-Accede al dashboard en:
-  http://192.168.50.1:8081
-```
-
-### Verificar que Todo Funciona
-
-```bash
-# Ver estado
-sudo ./router-control.sh status
-
-# Verificar procesos
-ps aux | grep -E "firewall_manager|traffic_capture|dashboard|model_server" | grep -v grep
-
-# Probar APIs
-curl http://localhost:8000/health
-curl http://192.168.50.1:5000/stats
-curl http://192.168.50.1:8081/api/status
-```
-
-### Detener Todo el Sistema
-
-```bash
-# Detener router/firewall
-cd ~/Documentos/UPC/TMA/project/router-system
-sudo ./router-control.sh stop
-
-# Detener modelo simulado
-pkill -f "python3 model_server.py"
-```
+| Servicio | URL |
+|----------|-----|
+| Dashboard Router | http://192.168.50.1:8081 |
+| Firewall API | http://192.168.50.1:5000/health |
+| Modelo ML | http://localhost:5001 |
+| Modelo Simulado | http://localhost:8000 |
+| Dashboard Modelo | http://localhost:5001/ |
 
 ---
 
-## 🌐 Interfaces Web
+## 📊 API del Firewall
 
-### 1. Panel de Control del Modelo ML
-**URL:** `http://localhost:8000`
-
-**Funcionalidades:**
-- ➕ **Bloquear IPs manualmente**: Añade IPs a categorías específicas
-- 📋 **Ver categorías**: Todas las IPs bloqueadas por categoría
-- 🗑️ **Eliminar IPs**: Quita IPs de las categorías
-- 🔄 **Ver flows**: Últimos 20 flows capturados en tiempo real
-- 🔥 **Acciones rápidas**: Enviar actualizaciones al firewall
-- 📊 **Estadísticas**: PCAPs recibidos, flows procesados
-
-**Ejemplo de uso:**
-1. Abre `http://localhost:8000` en tu navegador
-2. En "Bloquear IP manualmente":
-   - IP: `192.168.50.39`
-   - Categoría: `malware` (o crea una nueva)
-3. Click en "Bloquear IP"
-4. La IP se bloquea inmediatamente en el firewall
-
-### 2. Dashboard del Router
-**URL:** `http://192.168.50.1:8081`
-
-**Muestra:**
-- 📊 **Estadísticas del Sistema**: CPU, Memoria, Uptime
-- 🌐 **Red**: Clientes conectados, IP del router, interfaz AP
-- 🔥 **Firewall**: IPs bloqueadas, categorías activas
-- 🚫 **Categorías de Bloqueo**:
-  - Ver todas las categorías e IPs
-  - Botón "Desactivar/Activar" por categoría
-  - Botón "Limpiar" para eliminar todas las IPs
-- 👥 **Clientes Conectados**: IP, MAC, señal WiFi
-- 📈 **Tráfico**: Bytes enviados/recibidos, paquetes
-
-**Gestión de categorías desde el dashboard:**
-- **Desactivar categoría**: Las IPs se mantienen pero no se bloquean
-- **Activar categoría**: Vuelve a aplicar las reglas de bloqueo
-- **Limpiar categoría**: Elimina todas las IPs de esa categoría
-
----
-
-## 🔌 API del Firewall
-
-Base URL: `http://192.168.50.1:5000`
-
-### Endpoints Principales
-
-#### GET /get_categories
-Obtiene todas las categorías y sus IPs
-
+### Obtener estado
 ```bash
-curl http://192.168.50.1:5000/get_categories
+GET http://192.168.50.1:5000/health
 ```
 
-**Respuesta:**
-```json
+### Bloquear IP
+```bash
+POST http://192.168.50.1:5000/block
+Content-Type: application/json
+
 {
-  "categories": {
-    "malware": ["192.168.50.15", "192.168.50.23"],
-    "phishing": ["192.168.50.8"]
-  },
-  "active_categories": ["malware", "phishing"],
-  "stats": {
-    "total_updates": 42,
-    "total_blocked_ips": 3,
-    "last_update": "2026-01-13T18:20:15.123456"
-  }
+  "ip": "192.168.50.25",
+  "category": "malware"
 }
 ```
 
-#### POST /update_categories
-Actualiza categorías completas (reemplaza)
-
+### Desbloquear IP
 ```bash
-curl -X POST http://192.168.50.1:5000/update_categories \
-  -H "Content-Type: application/json" \
-  -d '{
-    "categories": {
-      "malware": ["192.168.50.10", "192.168.50.11"],
-      "ddos": ["192.168.50.99"]
-    }
-  }'
+POST http://192.168.50.1:5000/unblock
+Content-Type: application/json
+
+{
+  "ip": "192.168.50.25"
+}
 ```
 
-#### POST /add_to_category
-Añade IPs a una categoría existente
-
+### Listar IPs bloqueadas
 ```bash
-curl -X POST http://192.168.50.1:5000/add_to_category \
-  -H "Content-Type: application/json" \
-  -d '{
-    "category": "malware",
-    "ips": ["192.168.50.50"]
-  }'
+GET http://192.168.50.1:5000/blocked
 ```
 
-#### POST /remove_from_category
-Elimina IPs de una categoría
-
+### Activar/Desactivar categoría
 ```bash
-curl -X POST http://192.168.50.1:5000/remove_from_category \
-  -H "Content-Type: application/json" \
-  -d '{
-    "category": "malware",
-    "ips": ["192.168.50.50"]
-  }'
-```
-
-#### POST /toggle_category
-Activa o desactiva una categoría (mantiene las IPs)
-
-```bash
-# Desactivar categoría
-curl -X POST http://192.168.50.1:5000/toggle_category \
-  -H "Content-Type: application/json" \
-  -d '{
-    "category": "malware",
-    "enabled": false
-  }'
-
-# Activar categoría
-curl -X POST http://192.168.50.1:5000/toggle_category \
-  -H "Content-Type: application/json" \
-  -d '{
-    "category": "malware",
-    "enabled": true
-  }'
-```
-
-#### POST /clear_category
-Elimina todas las IPs de una categoría
-
-```bash
-curl -X POST http://192.168.50.1:5000/clear_category \
-  -H "Content-Type: application/json" \
-  -d '{"category": "malware"}'
-```
-
-#### POST /clear_all
-Elimina todas las categorías
-
-```bash
-curl -X POST http://192.168.50.1:5000/clear_all
-```
-
-#### GET /stats
-Obtiene estadísticas del firewall
-
-```bash
-curl http://192.168.50.1:5000/stats
+POST http://192.168.50.1:5000/category/malware/activate
+POST http://192.168.50.1:5000/category/malware/deactivate
 ```
 
 ---
 
-## 🎯 Gestión de Categorías
+## 🔧 Troubleshooting
 
-### Flujo de Trabajo Típico
-
-#### 1. Bloquear un Dispositivo Problemático
-
-**Opción A: Desde el Panel ML (localhost:8000)**
-1. Identifica la IP del cliente en el dashboard
-2. Abre `http://localhost:8000`
-3. Ingresa la IP y selecciona categoría
-4. Click "Bloquear IP"
-
-**Opción B: Desde la API**
+### El sistema no inicia
 ```bash
-curl -X POST http://192.168.50.1:5000/update_categories \
-  -H "Content-Type: application/json" \
-  -d '{
-    "categories": {
-      "blocked": ["192.168.50.39"]
-    }
-  }'
-```
-
-#### 2. Desactivar Temporalmente una Categoría
-
-**Desde el Dashboard (192.168.50.1:8081):**
-- Encuentra la categoría en la sección "Categorías de Bloqueo"
-- Click en el botón "🔴 Desactivar"
-- Las IPs se mantienen pero dejan de bloquearse
-
-**Desde la API:**
-```bash
-curl -X POST http://192.168.50.1:5000/toggle_category \
-  -H "Content-Type: application/json" \
-  -d '{"category": "malware", "enabled": false}'
-```
-
-#### 3. Reactivar una Categoría
-
-**Desde el Dashboard:**
-- Click en el botón "🟢 Activar"
-
-**Desde la API:**
-```bash
-curl -X POST http://192.168.50.1:5000/toggle_category \
-  -H "Content-Type: application/json" \
-  -d '{"category": "malware", "enabled": true}'
-```
-
-#### 4. Limpiar una Categoría Completa
-
-**Desde el Dashboard:**
-- Click en el botón "🗑️ Limpiar"
-
-**Desde la API:**
-```bash
-curl -X POST http://192.168.50.1:5000/clear_category \
-  -H "Content-Type: application/json" \
-  -d '{"category": "malware"}'
-```
-
----
-
-## 🧪 Casos de Uso y Ejemplos
-
-### Caso 1: Bloquear un Cliente Específico
-
-```bash
-# 1. Ver clientes conectados
-curl http://192.168.50.1:8081/api/status | python3 -c "import json,sys; [print(f\"{c['ip']} - {c['mac']}\") for c in json.load(sys.stdin)['network']['client_details']]"
-
-# 2. Bloquear cliente
-curl -X POST http://192.168.50.1:5000/update_categories \
-  -H "Content-Type: application/json" \
-  -d '{"categories": {"blocked": ["192.168.50.39"]}}'
-
-# 3. Verificar bloqueo
-curl http://192.168.50.1:5000/get_categories
-```
-
-### Caso 2: Simular Detección de Malware
-
-```bash
-# 1. Configurar IPs sospechosas en el modelo
-curl -X POST http://localhost:8000/configure \
-  -H "Content-Type: application/json" \
-  -d '{
-    "categories": {
-      "malware": ["192.168.50.10", "192.168.50.11"],
-      "phishing": ["192.168.50.20"]
-    }
-  }'
-
-# 2. Disparar actualización del firewall
-curl -X POST http://localhost:8000/trigger
-
-# 3. Ver en el dashboard (192.168.50.1:8081)
-```
-
-### Caso 3: Control Parental Temporal
-
-```bash
-# Bloquear dispositivo de niño
-curl -X POST http://192.168.50.1:5000/update_categories \
-  -H "Content-Type: application/json" \
-  -d '{"categories": {"parental": ["192.168.50.45"]}}'
-
-# Más tarde, desbloquear temporalmente (mantener la IP)
-curl -X POST http://192.168.50.1:5000/toggle_category \
-  -H "Content-Type: application/json" \
-  -d '{"category": "parental", "enabled": false}'
-
-# Volver a bloquear
-curl -X POST http://192.168.50.1:5000/toggle_category \
-  -H "Content-Type: application/json" \
-  -d '{"category": "parental", "enabled": true}'
-```
-
----
-
-## 🔍 Monitorización y Logs
-
-### Ver Logs en Tiempo Real
-
-```bash
-# Firewall Manager
+# Ver logs
+tail -f /tmp/model_server.log
 tail -f /tmp/firewall.log
-
-# Dashboard
 tail -f /tmp/dashboard.log
+tail -f /tmp/traffic_capture.log
 
-# Traffic Capture
-tail -f /var/log/router-system.log
-
-# Modelo ML (si lo iniciaste en background)
-tail -f nohup.out
+# Verificar procesos
+ps aux | grep python3 | grep -E "model_server|firewall|dashboard|traffic_capture"
 ```
 
-### Ver Reglas de iptables
-
+### Interfaces no detectadas
 ```bash
-# Ver chain de categorías
-sudo iptables -L CATEGORY_FILTER -n -v
+# Listar interfaces disponibles
+ip link show
 
-# Ver NAT
-sudo iptables -t nat -L -n -v
+# Editar .env con interfaces correctas
+nano .env
 
-# Ver FORWARD chain completo
-sudo iptables -L FORWARD -n -v
+# Reiniciar
+sudo ./restart_all.sh
 ```
 
-### Ver Clientes Conectados
-
+### Modelo no carga
 ```bash
-# Desde iw
-sudo iw dev wlxc83a35b5a9f5 station dump
+# Verificar archivos del modelo
+ls -la model_ml/*.pkl
 
-# Desde leases DHCP
-sudo cat /var/lib/misc/dnsmasq.leases
+# Para model_ml: verificar entorno virtual
+ls -la model_ml/ml/
 
-# Desde la API
-curl -s http://192.168.50.1:8081/api/status | python3 -m json.tool
+# Para simulated-model: verificar dependencias
+pip3 install -r simulated-model/requirements.txt
 ```
 
----
-
-## 🛠️ Troubleshooting
-
-### Problema: Dashboard muestra "Error al cambiar estado de categoría"
-
-**Causa:** Problemas CORS entre puertos 8081 (dashboard) y 5000 (firewall)
-
-**Solución:**
+### Cambios en .env no se aplican
 ```bash
-# Verificar que flask-cors está instalado
-sudo apt-get install python3-flask-cors
+# Verificar configuración actual
+python3 router-system/config.py
 
-# Reiniciar firewall manager
-sudo pkill -f firewall_manager
-cd ~/Documentos/UPC/TMA/project/router-system
-sudo python3 firewall_manager.py &
+# Reiniciar sistema
+sudo ./restart_all.sh
 ```
 
-### Problema: No se detectan clientes conectados
-
-**Solución:**
+### Error "Model not loaded"
 ```bash
-# Verificar interfaz correcta en dashboard
-grep "ap_interface" router-system/dashboard.py
-# Debe ser: 'ap_interface': 'wlxc83a35b5a9f5'
+# Para model_ml
+cd model_ml
+./ml/bin/pip install -r requirements.txt
 
-# Verificar que hay clientes
-sudo iw dev wlxc83a35b5a9f5 station dump
-
-# Reiniciar dashboard
-sudo pkill -f dashboard.py
-cd ~/Documentos/UPC/TMA/project/router-system
-sudo python3 dashboard.py &
+# Verificar archivos
+ls -la *.pkl
 ```
 
-### Problema: Modelo no actualiza el firewall
-
-**Solución:**
+### Puerto ocupado
 ```bash
-# Verificar que el firewall está corriendo
-curl http://192.168.50.1:5000/stats
+# Ver qué proceso usa el puerto
+sudo lsof -i :5001
+sudo lsof -i :8000
+sudo lsof -i :5002
 
-# Verificar conectividad desde el modelo
-curl -X POST http://192.168.50.1:5000/update_categories \
-  -H "Content-Type: application/json" \
-  -d '{"categories": {"test": ["192.168.50.99"]}}'
-
-# Si falla, asegurarse de estar en modo router
-sudo ./router-control.sh status
-```
-
-### Problema: Se pierde internet al activar el router
-
-**Solución:**
-```bash
-# Verificar que wlp2s0 sigue conectado
-nmcli device status
-
-# Verificar NAT
-sudo iptables -t nat -L -n -v | grep MASQUERADE
-
-# Verificar IP forwarding
-cat /proc/sys/net/ipv4/ip_forward  # Debe ser 1
-```
-
-### Problema: No se pueden conectar clientes al WiFi
-
-**Solución:**
-```bash
-# Ver estado de hostapd
-sudo systemctl status hostapd
-sudo journalctl -u hostapd -n 50
-
-# Verificar configuración
-sudo cat /etc/hostapd/hostapd.conf
-
-# Probar hostapd en modo debug
-sudo hostapd -dd /etc/hostapd/hostapd.conf
-```
-
-### Resetear Todo
-
-```bash
-# 1. Detener router
-sudo ./router-control.sh stop
-
-# 2. Limpiar iptables
-sudo iptables -F
-sudo iptables -t nat -F
-sudo iptables -X
-
-# 3. Reiniciar NetworkManager
-sudo systemctl restart NetworkManager
-
-# 4. Volver a empezar
-sudo ./router-control.sh start
-```
-
----
-
-## 📊 Configuración
-
-### Cambiar SSID y Contraseña
-
-```bash
-sudo nano /etc/hostapd/hostapd.conf
-```
-
-Editar:
-```
-ssid=TuNombreDeRed
-wpa_passphrase=TuNuevaPassword
-```
-
-Reiniciar:
-```bash
-sudo ./router-control.sh restart
-```
-
-### Cambiar Rango de IPs
-
-```bash
-sudo nano /etc/dnsmasq.conf
-```
-
-Editar:
-```
-dhcp-range=192.168.50.10,192.168.50.100,24h
-```
-
-### Cambiar Puerto del Dashboard
-
-Editar `router-system/dashboard.py`:
-```python
-app.run(host='0.0.0.0', port=8081, debug=False)  # Cambiar 8081
+# Detener todo y reiniciar
+./stop_all.sh
+sudo ./quick_start.sh
 ```
 
 ---
@@ -712,139 +341,86 @@ app.run(host='0.0.0.0', port=8081, debug=False)  # Cambiar 8081
 ## 📁 Estructura del Proyecto
 
 ```
-project/
-├── README.md                    # Este archivo
-├── router-system/
-│   ├── router-control.sh        # Script principal de control
-│   ├── firewall_manager.py      # Gestión del firewall (API)
-│   ├── traffic_capture.py       # Captura de tráfico
-│   ├── dashboard.py             # Dashboard web
-│   └── install.sh               # Script de instalación
-├── simulated-model/
-│   ├── model_server.py          # Modelo ML simulado
-│   ├── test_client.py           # Cliente de pruebas
-│   └── README.md                # Documentación del modelo
-└── usage_guide.md               # Guía detallada (legacy)
+firewall/
+├── .env                        # Configuración principal
+├── .env.example                # Plantilla de configuración
+├── README.md                   # Este archivo
+├── init_all.sh                 # Instalación completa
+├── quick_start.sh              # Inicio rápido
+├── restart_all.sh              # Reinicio
+├── stop_all.sh                 # Detener todo
+├── config_manager.sh           # Gestor de configuración
+│
+├── router-system/              # Sistema de router
+│   ├── config.py              # Carga de configuración
+│   ├── dashboard.py           # Dashboard web
+│   ├── firewall_manager.py    # Gestión del firewall
+│   ├── traffic_capture.py     # Captura de flows
+│   ├── traffic_capture_packets.py  # Captura de packets
+│   ├── router-control.sh      # Control del router
+│   └── install.sh             # Instalador del router
+│
+├── model_ml/                   # Modelo Random Forest
+│   ├── model_server.py        # Servidor del modelo
+│   ├── requirements.txt       # Dependencias
+│   ├── *.pkl                  # Archivos del modelo
+│   └── ml/                    # Entorno virtual
+│
+├── simulated-model/            # Modelo simulado
+│   ├── model_server.py        # Servidor simulado
+│   └── requirements.txt       # Dependencias
+│
+└── model_dl/                   # Modelo Deep Learning (futuro)
+    └── ...
+```
+
+---
+
+## 📝 Notas Importantes
+
+### Diferencias entre Scripts de Captura
+
+**traffic_capture.py (FLOWS)**
+- Calcula 79 features por flow (CICFlowMeter)
+- Envía estadísticas agregadas
+- Menor uso de ancho de banda
+- Compatible con: ml_flows, simulated_flows
+
+**traffic_capture_packets.py (PACKETS)**
+- Envía archivos PCAP completos
+- Mayor detalle de información
+- Mayor uso de ancho de banda
+- Compatible con: dl_packets
+
+### Compatibilidad con Modelos
+
+El sistema detecta automáticamente qué script usar según `MODEL_TYPE`:
+- `ml_flows` → usa `traffic_capture.py`
+- `simulated_flows` → usa `traffic_capture.py`
+- `dl_packets` → usa `traffic_capture_packets.py`
+
+### Logs
+
+Todos los logs se guardan en `/tmp/`:
+```bash
+/tmp/model_server.log      # Modelo ML
+/tmp/model.log             # Modelo simulado
+/tmp/firewall.log          # Firewall manager
+/tmp/dashboard.log         # Dashboard
+/tmp/traffic_capture.log   # Captura de tráfico
 ```
 
 ---
 
 ## 🔐 Seguridad
 
-### Mejores Prácticas
-
-1. **Cambiar la contraseña WiFi por defecto**
-2. **Usar WPA3 si tu hardware lo soporta**
-3. **Limitar el rango DHCP** al número de dispositivos necesarios
-4. **Monitorizar los logs** regularmente
-5. **Actualizar las categorías** de bloqueo frecuentemente
-
-### Añadir Autenticación a la API
-
-Editar `firewall_manager.py`:
-
-```python
-from functools import wraps
-
-API_KEY = "tu-clave-secreta-aqui"
-
-def require_api_key(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        key = request.headers.get('X-API-Key')
-        if key != API_KEY:
-            return jsonify({'error': 'Unauthorized'}), 401
-        return f(*args, **kwargs)
-    return decorated
-
-@app.route('/update_categories', methods=['POST'])
-@require_api_key
-def update_categories():
-    # ...
-```
+- El archivo `.env` contiene información sensible y está excluido de git
+- Usa `.env.example` como plantilla
+- Cambia `WIFI_PASSWORD` por defecto
+- Las contraseñas deben tener mínimo 8 caracteres
 
 ---
 
-## 🎓 Información del Proyecto
+## 📄 Licencia
 
-**Asignatura:** TMA - Técnicas de Machine Learning Avanzadas  
-**Universidad:** UPC (Universitat Politècnica de Catalunya)  
-**Año:** 2026
-
-### Componentes Principales
-
-1. **Router/Firewall**: Sistema base de routing y NAT
-2. **Firewall Dinámico**: Bloqueo por categorías con API REST
-3. **Traffic Capture**: Captura y análisis de tráfico de red
-4. **Dashboard**: Interfaz web de monitorización
-5. **Modelo ML**: Detección simulada de amenazas
-
-### Características Técnicas
-
-- **Lenguaje:** Python 3.12
-- **Framework Web:** Flask + Flask-CORS
-- **Captura de Red:** Scapy
-- **Firewall:** iptables
-- **WiFi AP:** hostapd
-- **DHCP:** dnsmasq
-
----
-
-## 📞 Soporte
-
-### URLs Útiles
-
-| Servicio | URL | Descripción |
-|----------|-----|-------------|
-| Dashboard Router | http://192.168.50.1:8081 | Monitorización y control |
-| API Firewall | http://192.168.50.1:5000 | REST API del firewall |
-| Panel ML | http://localhost:8000 | Control del modelo ML |
-| Stats Firewall | http://192.168.50.1:5000/stats | Estadísticas JSON |
-
-### Comandos Rápidos
-
-```bash
-# Iniciar todo
-cd simulated-model && python3 model_server.py &
-cd ../router-system && sudo ./router-control.sh start
-
-# Estado
-sudo ./router-control.sh status
-
-# Detener todo
-sudo ./router-control.sh stop
-pkill -f model_server.py
-
-# Ver logs
-tail -f /tmp/firewall.log
-tail -f /tmp/dashboard.log
-
-# Ver clientes
-curl -s http://192.168.50.1:8081/api/status | python3 -m json.tool
-
-# Ver categorías
-curl -s http://192.168.50.1:5000/get_categories | python3 -m json.tool
-```
-
----
-
-## ✅ Checklist de Verificación
-
-Después de iniciar el sistema, verifica:
-
-- [ ] El modelo ML responde: `curl http://localhost:8000/health`
-- [ ] El router está activo: `sudo ./router-control.sh status`
-- [ ] El firewall responde: `curl http://192.168.50.1:5000/stats`
-- [ ] El dashboard carga: Abre `http://192.168.50.1:8081`
-- [ ] Puedes conectarte al WiFi: SSID "RouterFirewall"
-- [ ] Los clientes obtienen IP: Verifica en el dashboard
-- [ ] El tráfico se captura: Ver logs del traffic_capture
-- [ ] El modelo recibe flows: `curl http://localhost:8000/stats`
-
----
-
-## 🎉 ¡Sistema Listo!
-
-El sistema está completamente funcional y probado. Todos los componentes están integrados y comunicándose correctamente.
-
-**¡Disfruta tu router/firewall con ML!** 🚀
+Este proyecto es parte del laboratorio TMA - UPC.

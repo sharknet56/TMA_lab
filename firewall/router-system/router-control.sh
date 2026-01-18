@@ -16,12 +16,20 @@ STATE_FILE="$CONFIG_DIR/router.state"
 BACKUP_DIR="$CONFIG_DIR/backups"
 LOG_FILE="/tmp/router-system.log"
 
-# Interfaces (modifica según tu hardware)
-INTERNET_IFACE="wlp2s0"  # Interfaz que conecta a internet
-AP_IFACE="wlxc83a35b5a9f5"        # Interfaz USB para punto de acceso
-AP_IP="192.168.50.1"
-AP_SUBNET="192.168.50.0/24"
-DHCP_RANGE="192.168.50.10,192.168.50.100"
+# Cargar configuración desde .env del proyecto padre
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -f "$PARENT_DIR/.env" ]; then
+    source "$PARENT_DIR/.env"
+fi
+
+# Interfaces (con valores por defecto si no están en .env)
+INTERNET_IFACE="${INTERNET_IFACE:-wlp2s0}"  # Interfaz que conecta a internet
+AP_IFACE="${AP_IFACE:-wlxc83a35b5a9f5}"     # Interfaz USB para punto de acceso
+AP_IP="${AP_GATEWAY:-192.168.50.1}"
+AP_SUBNET="${AP_NETWORK:-192.168.50.0/24}"
+DHCP_START="${AP_DHCP_START:-192.168.50.10}"
+DHCP_END="${AP_DHCP_END:-192.168.50.100}"
+DHCP_RANGE="$DHCP_START,$DHCP_END"
 
 # PID files para servicios (en /tmp para evitar problemas de permisos)
 FIREWALL_PID="/tmp/firewall_manager.pid"
@@ -123,10 +131,25 @@ restore_config() {
 setup_hostapd() {
     log "Configurando hostapd..."
     
-    cat > /etc/hostapd/hostapd.conf <<EOF
+    # Si ya existe hostapd.conf (creado por install.sh), no lo sobrescribimos
+    if [ -f "/etc/hostapd/hostapd.conf" ]; then
+        log "Usando configuración existente de hostapd"
+    else
+        log "Creando configuración por defecto de hostapd"
+        # Leer valores desde .env del proyecto padre si existe
+        PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+        if [ -f "$PARENT_DIR/.env" ]; then
+            source "$PARENT_DIR/.env"
+        fi
+        
+        # Usar valores de .env o defaults
+        WIFI_SSID=${WIFI_SSID:-"RouterFirewall"}
+        WIFI_PASSWORD=${WIFI_PASSWORD:-"SecurePass123"}
+        
+        cat > /etc/hostapd/hostapd.conf <<EOF
 interface=$AP_IFACE
 driver=nl80211
-ssid=RouterFirewall
+ssid=$WIFI_SSID
 hw_mode=g
 channel=6
 wmm_enabled=0
@@ -134,11 +157,12 @@ macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
 wpa=2
-wpa_passphrase=SecurePass123
+wpa_passphrase=$WIFI_PASSWORD
 wpa_key_mgmt=WPA-PSK
 wpa_pairwise=TKIP
 rsn_pairwise=CCMP
 EOF
+    fi
 
     # Configurar systemd para que no inicie automáticamente
     systemctl disable hostapd 2>/dev/null || true

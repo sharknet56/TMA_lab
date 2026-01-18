@@ -1,96 +1,152 @@
 #!/bin/bash
 # Script para reiniciar todo el sistema limpiamente
-# Uso: ./restart_all.sh [simulated]
-# Por defecto usa model_ml, con argumento 'simulated' usa simulated-model
-
-# Determinar qué modelo usar
-MODEL_TYPE=${1:-ml}  # Por defecto "ml"
-if [ "$1" = "simulated" ]; then
-    MODEL_TYPE="simulated"
-fi
+# Lee la configuración desde .env
 
 # Obtener el directorio del script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_DIR="$SCRIPT_DIR"
 
-echo "=== Configuración ==="
-if [ "$MODEL_TYPE" = "simulated" ]; then
-    MODEL_DIR="$PROJECT_DIR/simulated-model"
-    MODEL_PORT=8000
-    MODEL_LOG="/tmp/model.log"
-    echo "Usando: simulated-model (puerto $MODEL_PORT)"
+# Leer configuración desde .env
+if [ -f "$PROJECT_DIR/.env" ]; then
+    source "$PROJECT_DIR/.env"
+    echo "=== Configuración leída desde .env ==="
+    echo "Modelo: $MODEL_TYPE"
 else
-    MODEL_DIR="$PROJECT_DIR/model_ml"
-    MODEL_PORT=5001
-    MODEL_LOG="/tmp/model_server.log"
-    echo "Usando: model_ml (puerto $MODEL_PORT)"
+    echo "⚠ Advertencia: .env no encontrado, usando valores por defecto"
+    MODEL_TYPE="ml_flows"
 fi
+
+# Determinar directorio y puerto del modelo según MODEL_TYPE
+case "$MODEL_TYPE" in
+    "ml_flows"|"ml")
+        MODEL_DIR="$PROJECT_DIR/model_ml"
+        MODEL_PORT=5001
+        MODEL_LOG="/tmp/model_server.log"
+        ;;
+    "simulated_flows"|"simulated")
+        MODEL_DIR="$PROJECT_DIR/simulated-model"
+        MODEL_PORT=8000
+        MODEL_LOG="/tmp/model.log"
+        ;;
+    "dl_packets")
+        MODEL_DIR="$PROJECT_DIR/model_dl"
+        MODEL_PORT=5002
+        MODEL_LOG="/tmp/model_dl.log"
+        ;;
+    *)
+        echo "❌ MODEL_TYPE desconocido: $MODEL_TYPE"
+        exit 1
+        ;;
+esac
+
+echo "Directorio: $MODEL_DIR"
+echo "Puerto: $MODEL_PORT"
 
 echo ""
 echo "=== Deteniendo todos los servicios ==="
-sudo pkill -9 -f "python3 dashboard.py"
-sudo pkill -9 -f "python3 firewall_manager.py"
-sudo pkill -9 -f "python model_server.py"
-pkill -9 -f "python3 model_server.py"
-pkill -9 -f "python3 traffic_capture.py"
+echo "🛑 Llamando a stop_all.sh..."
+
+# Ejecutar stop_all.sh para evitar duplicar código
+"$PROJECT_DIR/stop_all.sh"
+
 sleep 2
 
-echo "=== Deteniendo router ==="
-cd "$PROJECT_DIR/router-system"
-sudo ./router-control.sh stop
-sleep 2
-
-echo "=== Eliminando caché de Python ==="
+echo ""
+echo "=== Limpiando caché y logs ==="
 find "$PROJECT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 find "$PROJECT_DIR" -type f -name "*.pyc" -delete 2>/dev/null
-echo "Caché eliminada"
+sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log /tmp/traffic_capture.log
+echo "✓ Caché y logs eliminados"
 
 echo ""
-echo "=== Copiando archivos actualizados a /etc/router-system/ ==="
-sudo cp "$PROJECT_DIR/router-system/dashboard.py" /etc/router-system/
-sudo cp "$PROJECT_DIR/router-system/firewall_manager.py" /etc/router-system/
-sudo cp "$PROJECT_DIR/router-system/traffic_capture.py" /etc/router-system/
-echo "Archivos actualizados"
-
-echo ""
-echo "=== Limpiando logs antiguos ==="
-sudo rm -f /tmp/model.log /tmp/model_server.log /tmp/firewall.log /tmp/dashboard.log
-
-echo ""
-echo "=== Iniciando modelo ==="
-cd "$MODEL_DIR"
-if [ "$MODEL_TYPE" = "simulated" ]; then
-    python3 model_server.py > "$MODEL_LOG" 2>&1 &
-    MODEL_PID=$!
-else
-    # Para model_ml, usar el entorno virtual
-    ./ml/bin/python model_server.py > "$MODEL_LOG" 2>&1 &
-    MODEL_PID=$!
-fi
-echo "Modelo iniciado (PID: $MODEL_PID, puerto: $MODEL_PORT)"
-sleep 3
-
-echo ""
-echo "=== Iniciando router y firewall ==="
+echo "=== Reiniciando servicios ==="
+echo "⏳ Iniciando Firewall Manager..."
 cd "$PROJECT_DIR/router-system"
+sudo "$PROJECT_DIR/venv/bin/python" firewall_manager.py > /tmp/firewall.log 2>&1 &
+FIREWALL_PID=$!
+sleep 2
+
+echo "⏳ Iniciando Dashboard..."
+sudo "$PROJECT_DIR/venv/bin/python" dashboard.py > /tmp/dashboard.log 2>&1 &
+DASHBOARD_PID=$!
+sleep 2
+
+echo "⏳ Configurando router..."
 sudo ./router-control.sh start
 sleep 5
 
-# El router-control.sh ya inicia firewall_manager y dashboard desde /etc/router-system/
-# No necesitamos iniciarlos de nuevo
+# Verificar que la red está configurada
+if ip addr show wlxc83a35b5a9f5 | grep -q "192.168.50"; then
+    echo "✓ Red configurada (192.168.50.0/24)"
+else
+    echo "⚠ Advertencia: La red 192.168.50.0/24 no está configurada"
+fi
+
+echo "⏳ Iniciando modelo..."
+cd "$MODEL_DIR"
+
+# Usar entorno virtual unificado
+"$PROJECT_DIR/venv/bin/python" model_server.py > "$MODEL_LOG" 2>&1 &
+MODEL_PID=$!
+
+sleep 3
+
+# Verificar detección de red en el modelo (solo para ml_flows)
+if [ "$MODEL_TYPE" = "ml_flows" ] || [ "$MODEL_TYPE" = "ml" ]; then
+    DETECTED_NET=$(grep "Red local detectada" "$MODEL_LOG" 2>/dev/null | tail -1 | grep -oP '\d+\.\d+\.\d+\.\d+/\d+' || echo "")
+    if [ "$DETECTED_NET" = "192.168.50.0/24" ]; then
+        echo "✓ Red $DETECTED_NET detectada correctamente"
+    elif [ -n "$DETECTED_NET" ]; then
+        echo "⚠ Advertencia: Modelo detectó red $DETECTED_NET (esperada: 192.168.50.0/24)"
+    fi
+fi
+
+echo "⏳ Iniciando captura de tráfico..."
+cd "$PROJECT_DIR/router-system"
+
+# El modo de captura se determina automáticamente por config.py según MODEL_TYPE
+# ml_flows/simulated_flows → traffic_capture.py
+# dl_packets → traffic_capture_packets.py
+
+# Determinar qué script usar basado en MODEL_TYPE
+case "$MODEL_TYPE" in
+    "ml_flows"|"ml"|"simulated_flows"|"simulated")
+        CAPTURE_SCRIPT="traffic_capture.py"
+        echo "📊 Modo: Flows (CICFlowMeter)"
+        ;;
+    "dl_packets")
+        CAPTURE_SCRIPT="traffic_capture_packets.py"
+        echo "📦 Modo: Packets (PCAP)"
+        ;;
+esac
+
+sudo "$PROJECT_DIR/venv/bin/python" "$CAPTURE_SCRIPT" > /tmp/traffic_capture.log 2>&1 &
+TRAFFIC_PID=$!
+sleep 2
 
 echo ""
 echo "=== Estado de los servicios ==="
-ps aux | grep -E "python3.*(model_server|firewall_manager|dashboard)" | grep -v grep
+echo "Firewall Manager (PID: $FIREWALL_PID): $(ps -p $FIREWALL_PID > /dev/null && echo '✓ Activo' || echo '✗ Inactivo')"
+echo "Dashboard (PID: $DASHBOARD_PID): $(ps -p $DASHBOARD_PID > /dev/null && echo '✓ Activo' || echo '✗ Inactivo')"
+echo "Modelo (PID: $MODEL_PID): $(ps -p $MODEL_PID > /dev/null && echo '✓ Activo' || echo '✗ Inactivo')"
+echo "Traffic Capture (PID: $TRAFFIC_PID): $(ps -p $TRAFFIC_PID > /dev/null && echo '✓ Activo' || echo '✗ Inactivo')"
+echo "Hostapd: $(sudo systemctl is-active hostapd)"
+echo "Dnsmasq: $(sudo systemctl is-active dnsmasq)"
 
 echo ""
 echo "=== URLs de acceso ==="
-if [ "$MODEL_TYPE" = "simulated" ]; then
-    echo "  - Modelo simulado: http://localhost:8000"
-else
-    echo "  - Modelo ML: http://localhost:5001"
-    echo "  - Dashboard del modelo: http://localhost:5001/"
-fi
+case "$MODEL_TYPE" in
+    "ml_flows"|"ml")
+        echo "  - Modelo ML: http://localhost:5001"
+        echo "  - Dashboard del modelo: http://localhost:5001/"
+        ;;
+    "simulated_flows"|"simulated")
+        echo "  - Modelo simulado: http://localhost:8000"
+        ;;
+    "dl_packets")
+        echo "  - Modelo DL: http://localhost:5002"
+        ;;
+esac
 echo "  - Dashboard del router: http://192.168.50.1:8081"
 echo "  - Firewall API: http://192.168.50.1:5000/health"
 echo ""
@@ -98,3 +154,4 @@ echo "Para ver logs:"
 echo "  tail -f $MODEL_LOG"
 echo "  tail -f /tmp/firewall.log"
 echo "  tail -f /tmp/dashboard.log"
+echo "  tail -f /tmp/traffic_capture.log"
