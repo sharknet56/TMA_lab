@@ -3,12 +3,10 @@
 
 echo ""
 echo "=== Deteniendo todos los servicios Python ==="
-sudo pkill -9 -f "python3 dashboard.py" 2>/dev/null || true
-sudo pkill -9 -f "python3 firewall_manager.py" 2>/dev/null || true
-sudo pkill -9 -f "python model_server.py" 2>/dev/null || true
-sudo pkill -9 -f "python3 model_server.py" 2>/dev/null || true
-sudo pkill -9 -f "python3 traffic_capture.py" 2>/dev/null || true
-sudo pkill -9 -f "python3 traffic_capture_packets.py" 2>/dev/null || true
+sudo pkill -9 -f "dashboard.py" >/dev/null 2>&1 || true
+sudo pkill -9 -f "firewall_manager.py" >/dev/null 2>&1 || true
+sudo pkill -9 -f "model_server.py" >/dev/null 2>&1 || true
+sudo pkill -9 -f "traffic_capture" >/dev/null 2>&1 || true
 echo "Servicios Python detenidos"
 
 echo ""
