@@ -2,7 +2,7 @@
 # test_model_dl.sh - Script para probar el modelo DL sin arrancar todo el sistema
 
 echo "=================================================="
-echo "🧪 Test del Modelo Deep Learning"
+echo " Test del Modelo Deep Learning"
 echo "=================================================="
 echo ""
 
@@ -17,29 +17,29 @@ echo ""
 files_ok=true
 
 if [ ! -f "$MODEL_DIR/inference/best_model.keras" ]; then
-    echo "❌ No se encuentra: inference/best_model.keras"
+    echo " No se encuentra: inference/best_model.keras"
     files_ok=false
 else
-    echo "✅ best_model.keras ($(du -h "$MODEL_DIR/inference/best_model.keras" | cut -f1))"
+    echo " best_model.keras ($(du -h "$MODEL_DIR/inference/best_model.keras" | cut -f1))"
 fi
 
 if [ ! -f "$MODEL_DIR/inference/label_encoder.pkl" ]; then
-    echo "❌ No se encuentra: inference/label_encoder.pkl"
+    echo " No se encuentra: inference/label_encoder.pkl"
     files_ok=false
 else
-    echo "✅ label_encoder.pkl"
+    echo " label_encoder.pkl"
 fi
 
 if [ ! -f "$MODEL_DIR/inference/model_config.json" ]; then
-    echo "❌ No se encuentra: inference/model_config.json"
+    echo " No se encuentra: inference/model_config.json"
     files_ok=false
 else
-    echo "✅ model_config.json"
+    echo " model_config.json"
 fi
 
 if [ "$files_ok" = false ]; then
     echo ""
-    echo "❌ Faltan archivos del modelo"
+    echo " Faltan archivos del modelo"
     echo "Asegúrate de tener todos los archivos en model_dl/inference/"
     echo ""
     exit 1
@@ -54,38 +54,38 @@ echo ""
 deps_ok=true
 
 python3 -c "import flask" 2>/dev/null || {
-    echo "❌ Flask no está instalado"
+    echo " Flask no está instalado"
     deps_ok=false
 }
-python3 -c "import flask" 2>/dev/null && echo "✅ flask"
+python3 -c "import flask" 2>/dev/null && echo " flask"
 
 python3 -c "import tensorflow" 2>/dev/null || {
-    echo "❌ TensorFlow no está instalado"
+    echo " TensorFlow no está instalado"
     deps_ok=false
 }
-python3 -c "import tensorflow" 2>/dev/null && echo "✅ tensorflow"
+python3 -c "import tensorflow" 2>/dev/null && echo " tensorflow"
 
 python3 -c "import scapy.all" 2>/dev/null || {
-    echo "❌ Scapy no está instalado"
+    echo " Scapy no está instalado"
     deps_ok=false
 }
-python3 -c "import scapy.all" 2>/dev/null && echo "✅ scapy"
+python3 -c "import scapy.all" 2>/dev/null && echo " scapy"
 
 python3 -c "import requests" 2>/dev/null || {
-    echo "❌ Requests no está instalado"
+    echo " Requests no está instalado"
     deps_ok=false
 }
-python3 -c "import requests" 2>/dev/null && echo "✅ requests"
+python3 -c "import requests" 2>/dev/null && echo " requests"
 
 python3 -c "import numpy" 2>/dev/null || {
-    echo "❌ NumPy no está instalado"
+    echo " NumPy no está instalado"
     deps_ok=false
 }
-python3 -c "import numpy" 2>/dev/null && echo "✅ numpy"
+python3 -c "import numpy" 2>/dev/null && echo " numpy"
 
 if [ "$deps_ok" = false ]; then
     echo ""
-    echo "❌ Faltan dependencias"
+    echo " Faltan dependencias"
     echo "Instalar con: pip install -r $MODEL_DIR/requirements.txt"
     echo ""
     exit 1
@@ -118,8 +118,8 @@ echo ""
 # 4. Iniciar el servidor
 echo "4️⃣  Iniciando servidor de modelo DL..."
 echo ""
-echo "📡 Servidor iniciando en http://localhost:5002"
-echo "🌐 Dashboard disponible en http://localhost:5002"
+echo " Servidor iniciando en http://localhost:5002"
+echo " Dashboard disponible en http://localhost:5002"
 echo ""
 echo "Presiona Ctrl+C para detener"
 echo ""

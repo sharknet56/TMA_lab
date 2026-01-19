@@ -6,7 +6,7 @@
 
 # Verificar que se ejecuta como root
 if [ "$EUID" -ne 0 ]; then 
-    echo "❌ Este script debe ejecutarse con sudo"
+    echo " Este script debe ejecutarse con sudo"
     echo "Uso: sudo ./init_all.sh [--reinstall]"
     exit 1
 fi
@@ -209,7 +209,7 @@ if ps -p $MODEL_PID > /dev/null; then
     echo "✓ Modelo corriendo correctamente"
     echo ""
 else
-    echo "❌ Error: el modelo no está corriendo"
+    echo " Error: el modelo no está corriendo"
     echo "Ver log: tail -f $PROJECT_DIR/$MODEL_LOG"
     echo ""
     exit 1
@@ -226,11 +226,11 @@ echo "╔═══════════════════════�
 echo "║         Sistema iniciado con éxito         ║"
 echo "╚════════════════════════════════════════════╝"
 echo ""
-echo "📊 Estado de los servicios:"
+echo " Estado de los servicios:"
 ps aux | grep -E "python.*(model_server|firewall_manager|dashboard|traffic_capture)" | grep -v grep | awk '{printf "  ✓ PID %-6s %s\n", $2, $11}'
 
 echo ""
-echo "🌐 URLs de acceso:"
+echo " URLs de acceso:"
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
         echo "  • Modelo ML:              http://localhost:$MODEL_ML_PORT"
@@ -247,14 +247,14 @@ echo "  • Dashboard del router:   http://localhost:$DASHBOARD_PORT"
 echo "  • Firewall API:           http://localhost:$FIREWALL_PORT/health"
 
 echo ""
-echo "📋 Logs disponibles:"
+echo " Logs disponibles:"
 echo "  tail -f $PROJECT_DIR/$MODEL_LOG"
 echo "  tail -f $PROJECT_DIR/$FIREWALL_LOG"
 echo "  tail -f $PROJECT_DIR/$DASHBOARD_LOG"
 echo "  tail -f $PROJECT_DIR/$TRAFFIC_CAPTURE_LOG"
 
 echo ""
-echo "🔧 Comandos útiles:"
+echo " Comandos útiles:"
 echo "  ./stop_all.sh                    # Detener todo"
 echo "  ./restart_all.sh                 # Reiniciar sistema"
 echo "  ./config_manager.sh              # Configurar sistema"

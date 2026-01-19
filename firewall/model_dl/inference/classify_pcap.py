@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🚀 Script de Inferencia para Clasificación de Dispositivos IoT
+ Script de Inferencia para Clasificación de Dispositivos IoT
 
 Este script procesa archivos PCAP y clasifica los paquetes según el dispositivo IoT que los generó.
 IMPORTANTE: Replica EXACTAMENTE el preprocesamiento usado durante el entrenamiento.
@@ -105,15 +105,15 @@ def load_model_and_config():
     # Cargar modelo
     model_path = os.path.join(script_dir, "best_model.keras")
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"❌ Modelo no encontrado: {model_path}")
+        raise FileNotFoundError(f" Modelo no encontrado: {model_path}")
     
-    print(f"📦 Cargando modelo desde: {model_path}")
+    print(f" Cargando modelo desde: {model_path}")
     model = tf.keras.models.load_model(model_path)
     
     # Cargar label encoder
     encoder_path = os.path.join(script_dir, "label_encoder.pkl")
     if not os.path.exists(encoder_path):
-        raise FileNotFoundError(f"❌ Label encoder no encontrado: {encoder_path}")
+        raise FileNotFoundError(f" Label encoder no encontrado: {encoder_path}")
     
     with open(encoder_path, 'rb') as f:
         label_encoder = pickle.load(f)
@@ -121,12 +121,12 @@ def load_model_and_config():
     # Cargar configuración
     config_path = os.path.join(script_dir, "model_config.json")
     if not os.path.exists(config_path):
-        raise FileNotFoundError(f"❌ Configuración no encontrada: {config_path}")
+        raise FileNotFoundError(f" Configuración no encontrada: {config_path}")
     
     with open(config_path, 'r') as f:
         config = json.load(f)
     
-    print(f"✅ Modelo cargado correctamente")
+    print(f" Modelo cargado correctamente")
     print(f"   Input shape esperado: {config['model_architecture']['input_shape']}")
     print(f"   Clases detectables: {config['num_classes']}")
     
@@ -150,15 +150,15 @@ def classify_pcap(pcap_path, model, label_encoder, max_packets=None):
     Returns:
         dict: Resultados de la clasificación
     """
-    print(f"\n📂 Procesando: {pcap_path}")
+    print(f"\n Procesando: {pcap_path}")
     print("="*70)
     
     # Cargar paquetes
     try:
         packets = rdpcap(pcap_path)
-        print(f"✅ Cargados {len(packets)} paquetes del PCAP")
+        print(f" Cargados {len(packets)} paquetes del PCAP")
     except Exception as e:
-        print(f"❌ Error cargando PCAP: {e}")
+        print(f" Error cargando PCAP: {e}")
         return None
     
     # Limitar número de paquetes si se especifica
@@ -167,7 +167,7 @@ def classify_pcap(pcap_path, model, label_encoder, max_packets=None):
         print(f"⚠️  Limitando a {max_packets} paquetes")
     
     # Preprocesar paquetes (PASO 1: Sanitizar)
-    print(f"\n🔧 Preprocesando paquetes...")
+    print(f"\n Preprocesando paquetes...")
     packets_sanitized = []
     for pkt in packets:
         sanitized = sanitize_packet(pkt)
@@ -175,24 +175,24 @@ def classify_pcap(pcap_path, model, label_encoder, max_packets=None):
             packets_sanitized.append(sanitized)
     
     if not packets_sanitized:
-        print("❌ No se pudo procesar ningún paquete")
+        print(" No se pudo procesar ningún paquete")
         return None
     
-    print(f"✅ {len(packets_sanitized)} paquetes preprocesados")
+    print(f" {len(packets_sanitized)} paquetes preprocesados")
     
     # Convertir a numpy array: (N, 500) con valores 0-255
     X_raw = np.array(packets_sanitized, dtype=np.uint8)
-    print(f"📊 Shape antes de normalización: {X_raw.shape}")
+    print(f" Shape antes de normalización: {X_raw.shape}")
     print(f"   Rango de valores: [{X_raw.min()}, {X_raw.max()}]")
     
     # PASO 2: Aplicar preprocesamiento para inferencia
     # CRÍTICO: Normalizar y ajustar dimensiones como en entrenamiento
     X_processed = preprocess_for_inference(X_raw)
-    print(f"✅ Shape después de preprocesamiento: {X_processed.shape}")
+    print(f" Shape después de preprocesamiento: {X_processed.shape}")
     print(f"   Rango de valores normalizados: [{X_processed.min():.3f}, {X_processed.max():.3f}]")
     
     # PASO 3: Realizar predicción
-    print(f"\n🔮 Realizando predicción...")
+    print(f"\n Realizando predicción...")
     predictions = model.predict(X_processed, verbose=0)
     predicted_classes = np.argmax(predictions, axis=1)
     
@@ -203,7 +203,7 @@ def classify_pcap(pcap_path, model, label_encoder, max_packets=None):
     confidences = np.max(predictions, axis=1)
     
     # Análisis de resultados
-    print(f"\n📊 RESULTADOS DE CLASIFICACIÓN")
+    print(f"\n RESULTADOS DE CLASIFICACIÓN")
     print("="*70)
     
     # Conteo por clase
@@ -225,12 +225,12 @@ def classify_pcap(pcap_path, model, label_encoder, max_packets=None):
     
     # Predicción mayoritaria
     most_common_class, most_common_count = class_counts.most_common(1)[0]
-    print(f"\n🎯 Clase mayoritaria: {most_common_class}")
+    print(f"\n Clase mayoritaria: {most_common_class}")
     print(f"   Paquetes: {most_common_count}/{len(predicted_labels)} ({most_common_count/len(predicted_labels)*100:.2f}%)")
     
     # Confianza global
     avg_confidence_global = confidences.mean()
-    print(f"\n📊 Confianza promedio global: {avg_confidence_global:.2%}")
+    print(f"\n Confianza promedio global: {avg_confidence_global:.2%}")
     
     # Retornar resultados
     results = {
@@ -254,7 +254,7 @@ def classify_pcap(pcap_path, model, label_encoder, max_packets=None):
 def main():
     """Función principal del script."""
     if len(sys.argv) < 2:
-        print("❌ Uso: python classify_pcap.py <archivo.pcap> [max_packets]")
+        print(" Uso: python classify_pcap.py <archivo.pcap> [max_packets]")
         print("\nEjemplo:")
         print("  python classify_pcap.py capture.pcap")
         print("  python classify_pcap.py capture.pcap 1000")
@@ -265,21 +265,21 @@ def main():
     
     # Verificar que el archivo existe
     if not os.path.exists(pcap_path):
-        print(f"❌ Archivo no encontrado: {pcap_path}")
+        print(f" Archivo no encontrado: {pcap_path}")
         sys.exit(1)
     
-    print("🚀 CLASIFICADOR DE DISPOSITIVOS IoT")
+    print(" CLASIFICADOR DE DISPOSITIVOS IoT")
     print("="*70)
     
     # Cargar modelo y configuración
     try:
         model, label_encoder, config = load_model_and_config()
     except Exception as e:
-        print(f"❌ Error cargando modelo: {e}")
+        print(f" Error cargando modelo: {e}")
         sys.exit(1)
     
     # Mostrar información del modelo
-    print(f"\n📋 INFORMACIÓN DEL MODELO")
+    print(f"\n INFORMACIÓN DEL MODELO")
     print("="*70)
     print(f"Accuracy en test: {config['training_info']['test_accuracy']*100:.2f}%")
     print(f"F1-Score (macro): {config['training_info']['f1_macro']*100:.2f}%")
@@ -292,9 +292,9 @@ def main():
     results = classify_pcap(pcap_path, model, label_encoder, max_packets)
     
     if results:
-        print("\n✅ Clasificación completada exitosamente")
+        print("\n Clasificación completada exitosamente")
     else:
-        print("\n❌ Error en la clasificación")
+        print("\n Error en la clasificación")
         sys.exit(1)
 
 

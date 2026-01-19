@@ -2,39 +2,39 @@
 
 Sistema completo de router WiFi con firewall dinámico controlado por Machine Learning para detección y clasificación de dispositivos IoT.
 
-## 📋 Características
+##  Características
 
 ### Router WiFi
-- ✅ Punto de acceso WiFi configurable (WPA2)
-- ✅ Servidor DHCP automático
-- ✅ NAT/Routing hacia internet
-- ✅ Sin pérdida de conexión en la máquina host
+-  Punto de acceso WiFi configurable (WPA2)
+-  Servidor DHCP automático
+-  NAT/Routing hacia internet
+-  Sin pérdida de conexión en la máquina host
 
 ### Firewall Dinámico
-- ✅ Bloqueo por categorías (malware, phishing, etc.)
-- ✅ Actualización en tiempo real vía API REST
-- ✅ Control granular por IP
-- ✅ Activar/Desactivar categorías sin perder IPs
+-  Bloqueo por categorías (malware, phishing, etc.)
+-  Actualización en tiempo real vía API REST
+-  Control granular por IP
+-  Activar/Desactivar categorías sin perder IPs
 
 ### Captura de Tráfico
-- ✅ Captura de paquetes (PCAP) o flows (CICFlowMeter)
-- ✅ Envío automático al modelo ML
-- ✅ Modo configurable desde dashboard o .env
+-  Captura de paquetes (PCAP) o flows (CICFlowMeter)
+-  Envío automático al modelo ML
+-  Modo configurable desde dashboard o .env
 
 ### Modelos ML
-- ✅ **ml_flows**: Random Forest con flows (puerto 5001)
-- ✅ **simulated_flows**: Modelo simulado con flows (puerto 8000)
-- ✅ **dl_packets**: Deep Learning con packets (puerto 5002)
+-  **ml_flows**: Random Forest con flows (puerto 5001)
+-  **simulated_flows**: Modelo simulado con flows (puerto 8000)
+-  **dl_packets**: Deep Learning con packets (puerto 5002)
 
 ### Dashboard Web
-- ✅ Monitorización en tiempo real
-- ✅ Visualización de clientes conectados
-- ✅ Control de categorías y configuración
-- ✅ Estadísticas del sistema
+-  Monitorización en tiempo real
+-  Visualización de clientes conectados
+-  Control de categorías y configuración
+-  Estadísticas del sistema
 
 ---
 
-## 🚀 Inicio Rápido
+##  Inicio Rápido
 
 ### Instalación Completa (primera vez)
 ```bash
@@ -62,7 +62,7 @@ sudo ./quick_start.sh
 
 ---
 
-## ⚙️ Configuración
+##  Configuración
 
 ### Archivo .env
 
@@ -134,7 +134,7 @@ sudo ./restart_all.sh
 
 #### Método 2: Dashboard Web
 1. Abrir `http://192.168.50.1:8081`
-2. Sección "⚙️ Configuración"
+2. Sección " Configuración"
 3. Cambiar modo de captura
 4. Clic en "Aplicar Cambio"
 
@@ -145,7 +145,7 @@ sudo ./restart_all.sh
 
 ---
 
-## 📜 Scripts Disponibles
+##  Scripts Disponibles
 
 ### `init_all.sh` - Instalación completa
 Instala y configura todo el sistema desde cero.
@@ -212,7 +212,7 @@ Herramienta interactiva para modificar `.env`.
 
 ---
 
-## 🌐 URLs de Acceso
+##  URLs de Acceso
 
 Una vez iniciado el sistema:
 
@@ -226,7 +226,7 @@ Una vez iniciado el sistema:
 
 ---
 
-## 📊 API del Firewall
+##  API del Firewall
 
 ### Obtener estado
 ```bash
@@ -267,7 +267,7 @@ POST http://192.168.50.1:5000/category/malware/deactivate
 
 ---
 
-## 🔧 Troubleshooting
+##  Troubleshooting
 
 ### El sistema no inicia
 ```bash
@@ -338,7 +338,7 @@ sudo ./quick_start.sh
 
 ---
 
-## 📁 Estructura del Proyecto
+##  Estructura del Proyecto
 
 ```
 firewall/
@@ -376,7 +376,7 @@ firewall/
 
 ---
 
-## 📝 Notas Importantes
+##  Notas Importantes
 
 ### Diferencias entre Scripts de Captura
 
@@ -412,7 +412,7 @@ Todos los logs se guardan en `/tmp/`:
 
 ---
 
-## 🔐 Seguridad
+##  Seguridad
 
 - El archivo `.env` contiene información sensible y está excluido de git
 - Usa `.env.example` como plantilla
@@ -421,6 +421,6 @@ Todos los logs se guardan en `/tmp/`:
 
 ---
 
-## 📄 Licencia
+##  Licencia
 
 Este proyecto es parte del laboratorio TMA - UPC.

@@ -73,21 +73,21 @@ def main():
     base_url = "http://localhost:5002"
     
     print("=" * 60)
-    print("🧪 Test Cliente para Modelo DL")
+    print(" Test Cliente para Modelo DL")
     print("=" * 60)
     
     # Test 1: Health check
     if not test_health(base_url):
-        print("\n❌ Health check falló. ¿Está el servidor corriendo?")
+        print("\n Health check falló. ¿Está el servidor corriendo?")
         sys.exit(1)
     
-    print("\n✅ Servidor respondiendo correctamente")
+    print("\n Servidor respondiendo correctamente")
     
     # Test 2: Enviar PCAP si se proporciona
     if len(sys.argv) > 1:
         pcap_file = sys.argv[1]
         if test_pcap(base_url, pcap_file):
-            print("\n✅ PCAP procesado correctamente")
+            print("\n PCAP procesado correctamente")
             
             # Esperar un poco y obtener stats
             import time
@@ -95,9 +95,9 @@ def main():
             test_stats(base_url)
             test_devices(base_url)
         else:
-            print("\n❌ Error procesando PCAP")
+            print("\n Error procesando PCAP")
     else:
-        print("\n💡 Uso: python test_client.py <archivo.pcap>")
+        print("\n Uso: python test_client.py <archivo.pcap>")
         print("   Para probar con un archivo PCAP específico")
         
         # Mostrar stats actuales

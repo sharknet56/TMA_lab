@@ -2,16 +2,16 @@
 
 Este servidor utiliza un modelo Random Forest entrenado para clasificar dispositivos IoT en 4 macro-categorías basándose en patrones de tráfico de red.
 
-## 📋 Características
+##  Características
 
 - **Modelo**: Random Forest Classifier
 - **Categorías**: 
-  - 📹 **MULTIMEDIA**: Cámaras, Video, Audio (alto ancho de banda)
-  - 💡 **SMART_CONTROLS**: Plugs, Lighting, Sensores de movimiento
+  -  **MULTIMEDIA**: Cámaras, Video, Audio (alto ancho de banda)
+  -  **SMART_CONTROLS**: Plugs, Lighting, Sensores de movimiento
   - 🌡️ **SENSORS**: Weather, Air Quality, Sleep (bajo tráfico)
-  - 💻 **COMPUTING**: Router, Smartphone, PC
+  -  **COMPUTING**: Router, Smartphone, PC
 
-## 🚀 Instalación
+##  Instalación
 
 ### 1. Instalar dependencias
 
@@ -41,7 +41,7 @@ python model_server.py
 
 El servidor estará disponible en `http://localhost:5001`
 
-## 📡 API Endpoints
+##  API Endpoints
 
 ### Health Check
 ```bash
@@ -100,7 +100,7 @@ GET /
 ```
 Dashboard web interactivo con estadísticas en tiempo real.
 
-## 🧪 Testing
+##  Testing
 
 Usa el cliente de prueba para verificar el funcionamiento:
 
@@ -109,13 +109,13 @@ python test_client.py
 ```
 
 Este script ejecutará varios tests:
-- ✅ Health check
-- ✅ Dashboard disponibilidad
-- ✅ Estadísticas del servidor
-- ✅ Clasificación de flows simulados
-- ✅ Predicción directa
+-  Health check
+-  Dashboard disponibilidad
+-  Estadísticas del servidor
+-  Clasificación de flows simulados
+-  Predicción directa
 
-## 📊 Estructura del Proyecto
+##  Estructura del Proyecto
 
 ```
 5_dataset_model/
@@ -135,14 +135,14 @@ Este script ejecutará varios tests:
     └── UNSW_IoT_Traces.csv
 ```
 
-## ⚙️ Configuración
+##  Configuración
 
 Edita `config.json` para cambiar:
 - Puerto del servidor
 - URL del firewall
 - Configuración del modelo
 
-## 🔗 Integración con Firewall
+##  Integración con Firewall
 
 El servidor puede enviar automáticamente las categorías clasificadas al firewall:
 
@@ -156,7 +156,7 @@ Las categorías se mapean a niveles de amenaza:
 - `SENSORS` → `low_traffic`
 - `COMPUTING` → `general_device`
 
-## 📈 Métricas del Modelo
+##  Métricas del Modelo
 
 El modelo fue entrenado con validación cruzada 5-fold:
 - **Accuracy promedio**: ~XX%
@@ -165,7 +165,7 @@ El modelo fue entrenado con validación cruzada 5-fold:
 
 (Ver resultados completos en el notebook)
 
-## 🐛 Solución de Problemas
+##  Solución de Problemas
 
 ### Error: "Model not loaded"
 Verifica que existen los archivos:
@@ -178,19 +178,19 @@ Los flows deben tener las mismas features que el dataset de entrenamiento.
 ### Error al conectar con firewall
 Verifica que el firewall está ejecutándose en la URL configurada.
 
-## 📝 Notas
+##  Notas
 
 - El servidor está optimizado para recibir flows en formato similar al dataset de entrenamiento
 - Se requiere ajustar el procesamiento de flows según el formato específico de tu sistema de captura
 - El dashboard web se actualiza automáticamente cada 5 segundos
 
-## 🔧 Desarrollo
+##  Desarrollo
 
 Para modificar el modelo:
 1. Edita el notebook `IntentoFinal.ipynb`
 2. Re-entrena el modelo
 3. Reinicia el servidor
 
-## 📄 Licencia
+##  Licencia
 
 Este proyecto es parte del laboratorio TMA.

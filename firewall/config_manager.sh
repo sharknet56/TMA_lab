@@ -6,7 +6,7 @@ ENV_FILE="$SCRIPT_DIR/.env"
 
 # Verificar que existe el archivo .env
 if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ Archivo .env no encontrado"
+    echo " Archivo .env no encontrado"
     echo "   Copiando desde .env.example..."
     echo ""
     if [ -f "$SCRIPT_DIR/.env.example" ]; then
@@ -14,7 +14,7 @@ if [ ! -f "$ENV_FILE" ]; then
         echo "✓ Archivo .env creado"
         echo ""
     else
-        echo "❌ No se encontró .env.example"
+        echo " No se encontró .env.example"
         echo ""
         exit 1
     fi
@@ -49,7 +49,7 @@ echo "╚═══════════════════════�
 echo ""
 
 # Mostrar configuración actual
-echo "📋 Configuración actual:"
+echo " Configuración actual:"
 echo ""
 cat "$ENV_FILE" | grep -v "^#" | grep -v "^$" | while read line; do
     echo "  $line"
@@ -83,7 +83,7 @@ case $option in
         if [ "$mode" = "flows" ] || [ "$mode" = "packets" ]; then
             update_env_var "TRAFFIC_CAPTURE_MODE" "$mode"
         else
-            echo "❌ Modo inválido"
+            echo " Modo inválido"
         fi
         ;;
     
@@ -163,17 +163,17 @@ case $option in
         ;;
     
     0)
-        echo "👋 Saliendo..."
+        echo " Saliendo..."
         exit 0
         ;;
     
     *)
-        echo "❌ Opción inválida"
+        echo " Opción inválida"
         ;;
 esac
 
 echo ""
 echo "✓ Configuración actualizada"
 echo ""
-echo "💡 Reinicia los servicios para aplicar los cambios:"
+echo " Reinicia los servicios para aplicar los cambios:"
 echo "   sudo ./restart_all.sh"

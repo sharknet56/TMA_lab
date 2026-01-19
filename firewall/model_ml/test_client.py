@@ -131,7 +131,7 @@ def test_dashboard():
         response = requests.get(f'{SERVER_URL}/')
         print(f"Status Code: {response.status_code}")
         if response.status_code == 200:
-            print(f"✅ Dashboard disponible en: {SERVER_URL}/")
+            print(f" Dashboard disponible en: {SERVER_URL}/")
         return response.status_code == 200
     except Exception as e:
         print(f"Error: {e}")
@@ -170,7 +170,7 @@ def main():
     print("RESUMEN DE TESTS")
     print("="*70)
     for name, result in results:
-        status = "✅ PASS" if result else "❌ FAIL"
+        status = " PASS" if result else " FAIL"
         print(f"{status} - {name}")
     
     passed = sum(1 for _, r in results if r)
@@ -178,7 +178,7 @@ def main():
     print(f"\nTotal: {passed}/{total} tests pasados")
     
     if passed == total:
-        print("\n🎉 ¡Todos los tests pasaron!")
+        print("\n ¡Todos los tests pasaron!")
     else:
         print("\n⚠️  Algunos tests fallaron")
 

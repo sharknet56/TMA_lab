@@ -155,11 +155,11 @@ def run_all_tests():
         check_firewall()
         
     except requests.exceptions.ConnectionError:
-        print("\n❌ Error: No se puede conectar al modelo.")
+        print("\n Error: No se puede conectar al modelo.")
         print("Asegúrate de que el modelo esté corriendo:")
         print("  python3 model_server.py")
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n Error: {e}")
 
 if __name__ == '__main__':
     import sys

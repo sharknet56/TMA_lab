@@ -4,7 +4,7 @@
 
 # Verificar que se ejecuta como root
 if [ "$EUID" -ne 0 ]; then 
-    echo "❌ Este script debe ejecutarse con sudo"
+    echo " Este script debe ejecutarse con sudo"
     echo "Uso: sudo ./quick_start.sh"
     exit 1
 fi
@@ -36,21 +36,21 @@ case "$MODEL_TYPE" in
         MODEL_DIR="$PROJECT_DIR/model_ml"
         MODEL_PORT=$MODEL_ML_PORT
         MODEL_LOG="$MODEL_ML_LOG"
-        echo "🤖 Modelo: model_ml (puerto $MODEL_PORT)"
+        echo " Modelo: model_ml (puerto $MODEL_PORT)"
         echo ""
         ;;
     "simulated_flows"|"simulated")
         MODEL_DIR="$PROJECT_DIR/simulated-model"
         MODEL_PORT=$MODEL_SIMULATED_PORT
         MODEL_LOG=$MODEL_SIMULATED_LOG
-        echo "📦 Modelo: simulated-model (puerto $MODEL_PORT)"
+        echo " Modelo: simulated-model (puerto $MODEL_PORT)"
         echo ""
         ;;
     "dl_packets")
         MODEL_DIR="$PROJECT_DIR/model_dl"
         MODEL_PORT=$MODEL_DL_PORT
         MODEL_LOG=$MODEL_DL_LOG
-        echo "🧠 Modelo: model_dl (puerto $MODEL_PORT)"
+        echo " Modelo: model_dl (puerto $MODEL_PORT)"
         echo ""
         ;;
     *)
@@ -64,13 +64,13 @@ esac
 
 # Verificar que existe el directorio del modelo
 if [ ! -d "$MODEL_DIR" ]; then
-    echo "❌ Error: No se encuentra el directorio $MODEL_DIR"
+    echo " Error: No se encuentra el directorio $MODEL_DIR"
     exit 1
 fi
 
 # Verificar que existe el entorno virtual unificado
 if [ ! -d "$PROJECT_DIR/venv" ]; then
-    echo "❌ Error: Entorno virtual no encontrado en $PROJECT_DIR/venv"
+    echo " Error: Entorno virtual no encontrado en $PROJECT_DIR/venv"
     echo "   Ejecuta: sudo ./init_all.sh"
     exit 1
 fi
@@ -88,7 +88,7 @@ cd "$MODEL_DIR"
 # Verificar archivos del modelo si es ml_flows
 if [ "$MODEL_TYPE" = "ml_flows" ] || [ "$MODEL_TYPE" = "ml" ]; then
     if [ ! -f "model.pkl" ] && [ ! -f "iot_device_classifier_rf.pkl" ]; then
-        echo "❌ Error: No se encuentra el archivo del modelo (model.pkl)"
+        echo " Error: No se encuentra el archivo del modelo (model.pkl)"
         echo "   Genera el modelo ejecutando el notebook IntentoFinal.ipynb"
         exit 1
     fi
@@ -106,7 +106,7 @@ echo "=== 3/3 Iniciando router-system ==="
 
 # Verificar que existe router-control.sh
 if [ ! -f "$PROJECT_DIR/router-system/router-control.sh" ]; then
-    echo "❌ Error: No se encuentra router-control.sh"
+    echo " Error: No se encuentra router-control.sh"
     echo "   El sistema router no está instalado."
     exit 1
 fi
@@ -168,7 +168,7 @@ if ps -p $MODEL_PID > /dev/null; then
         fi
     fi
 else
-    echo "  ❌ Error: el modelo no está corriendo"
+    echo "   Error: el modelo no está corriendo"
     echo "  Ver log: tail -f $PROJECT_DIR/$MODEL_LOG"
 fi
 
@@ -181,11 +181,11 @@ cd "$PROJECT_DIR/router-system"
 case "$MODEL_TYPE" in
     "ml_flows"|"ml"|"simulated_flows"|"simulated")
         CAPTURE_SCRIPT="traffic_capture.py"
-        echo "  📊 Modo de captura: Flows (estadísticas agregadas)"
+        echo "   Modo de captura: Flows (estadísticas agregadas)"
         ;;
     "dl_packets")
         CAPTURE_SCRIPT="traffic_capture_packets.py"
-        echo "  📦 Modo de captura: Packets (PCAPs completos)"
+        echo "   Modo de captura: Packets (PCAPs completos)"
         ;;
 esac
 echo ""
@@ -209,7 +209,7 @@ echo "╔═══════════════════════�
 echo "║         Sistema iniciado                   ║"
 echo "╚════════════════════════════════════════════╝"
 echo ""
-echo "📊 Estado de los servicios:"
+echo " Estado de los servicios:"
 SERVICES_RUNNING=$(ps aux | grep -E "python.*(model_server|firewall_manager|dashboard|traffic_capture)" | grep -v grep)
 if [ -n "$SERVICES_RUNNING" ]; then
     echo "$SERVICES_RUNNING" | awk '{
@@ -234,7 +234,7 @@ if pgrep dnsmasq > /dev/null; then
 fi
 
 echo ""
-echo "🌐 URLs de acceso:"
+echo " URLs de acceso:"
 case "$MODEL_TYPE" in
     "ml_flows"|"ml")
         echo "  • Modelo ML:              http://localhost:$MODEL_ML_PORT"
@@ -251,14 +251,14 @@ echo "  • Dashboard del router:   http://localhost:$DASHBOARD_PORT"
 echo "  • Firewall API:           http://localhost:$FIREWALL_PORT/health"
 
 echo ""
-echo "📋 Logs disponibles:"
+echo " Logs disponibles:"
 echo "  tail -f $PROJECT_DIR/$MODEL_LOG"
 echo "  tail -f $PROJECT_DIR/$FIREWALL_LOG"
 echo "  tail -f $PROJECT_DIR/$DASHBOARD_LOG"
 echo "  tail -f $PROJECT_DIR/$TRAFFIC_CAPTURE_LOG"
 
 echo ""
-echo "🔧 Comandos útiles:"
+echo " Comandos útiles:"
 echo "  ./stop_all.sh                # Detener todo"
 echo "  ./restart_all.sh             # Reiniciar sistema"
 echo "  ./config_manager.sh          # Configurar sistema"
