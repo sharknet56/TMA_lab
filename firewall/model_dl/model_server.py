@@ -125,18 +125,33 @@ recent_predictions = []
 MAX_RECENT = 50
 
 # Mapeo de categorías a tipos de amenaza para el firewall
+# 17 categorías específicas del modelo DL granular
 CATEGORY_TO_THREAT = {
+    # Asistentes de voz
     'Alexa': 'Alexa',
+    'GoogleHome': 'GoogleHome',
+    'HomePod': 'HomePod',
     'SmartSpeaker': 'SmartSpeaker',
-    'IndoorCamera': 'IndoorCamera',
+    
+    # Cámaras
     'SecurityCamera': 'SecurityCamera',
+    'IndoorCamera': 'IndoorCamera',
     'MonitorCamera': 'MonitorCamera',
+    
+    # Sensores
     'MotionSensor': 'MotionSensor',
     'EnvironmentalSensor': 'EnvironmentalSensor',
     'HealthSensor': 'HealthSensor',
-    'SmartPlug': 'SmartPlug',
+    
+    # Iluminación y control
     'SmartBulb': 'SmartBulb',
+    'SmartPlug': 'SmartPlug',
+    'SmartSwitch': 'SmartSwitch',
+    
+    # Seguridad
     'SmartLock': 'SmartLock',
+    
+    # Hubs y otros
     'Hub': 'Hub',
     'Printer': 'Printer',
     'Other': 'unknown_device'
@@ -656,6 +671,34 @@ def get_devices():
         'timestamp': datetime.now().isoformat()
     })
 
+@app.route('/reset', methods=['POST'])
+def reset_metrics():
+    """Resetear todas las métricas y estadísticas"""
+    global stats, recent_predictions, device_predictions
+    
+    logger.info("🔄 Reseteando métricas del modelo...")
+    
+    # Resetear estadísticas
+    stats['pcap_received'] = 0
+    stats['packets_processed'] = 0
+    stats['predictions_made'] = 0
+    stats['firewall_updates'] = 0
+    stats['last_pcap'] = None
+    stats['last_prediction'] = None
+    stats['last_firewall_update'] = None
+    
+    # Limpiar buffers
+    recent_predictions = []
+    device_predictions = {}
+    
+    logger.info("✅ Métricas reseteadas correctamente")
+    
+    return jsonify({
+        'status': 'ok',
+        'message': 'Métricas reseteadas correctamente',
+        'timestamp': datetime.now().isoformat()
+    })
+
 # ==================== DASHBOARD HTML ====================
 
 DASHBOARD_HTML = """
@@ -783,6 +826,7 @@ DASHBOARD_HTML = """
         <div style="text-align: center; margin-top: 20px;">
             <button onclick="loadData()">🔄 Actualizar</button>
             <button onclick="window.location.href='/stats'">📈 Ver JSON Stats</button>
+            <button onclick="resetMetrics()" style="background: rgba(248, 113, 113, 0.3); border-color: rgba(248, 113, 113, 0.5);">🗑️ Limpiar Métricas</button>
         </div>
     </div>
     
@@ -858,6 +902,27 @@ DASHBOARD_HTML = """
                 console.error('Error loading data:', error);
             }
         }
+        async function resetMetrics() {
+            if (!confirm('¿Estás seguro de que quieres limpiar todas las métricas y empezar desde cero?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/reset', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.status === 'ok') {
+                    alert('✅ Métricas limpiadas correctamente');
+                    loadData();
+                } else {
+                    alert('❌ Error limpiando métricas');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ Error limpiando métricas');
+            }
+        }
+        
         
         // Cargar datos al inicio
         loadData();
