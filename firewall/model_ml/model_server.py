@@ -535,6 +535,11 @@ def receive_flows():
     total_flows = len(flows)
     logger.info(f"Flows recibidos: {total_flows} flows")
     
+    # 🔥 NUEVO: Limitar a los últimos 10 flows
+    N_flows = int(os.getenv('MODEL_ML_LAST_FLOWS', '10'))
+    flows = flows[-N_flows:] if len(flows) > N_flows else flows
+    logger.info(f"Procesando últimos {len(flows)} flows (limitado a {N_flows})")
+    
     # Limpiar flows antiguos periódicamente
     cleanup_old_flows()
     
@@ -706,6 +711,30 @@ def clear_predictions():
         'timestamp': datetime.now().isoformat()
     })
 
+@app.route('/reset_stats', methods=['POST'])
+def reset_stats():
+    """Reiniciar todas las estadísticas globales del servidor"""
+    global stats
+    
+    stats = {
+        'pcap_received': 0,
+        'flows_received': 0,
+        'predictions_made': 0,
+        'firewall_updates': 0,
+        'last_pcap': None,
+        'last_flow': None,
+        'last_prediction': None,
+        'last_firewall_update': None
+    }
+    
+    logger.info("📊 Estadísticas globales reiniciadas por solicitud del usuario")
+    
+    return jsonify({
+        'status': 'success',
+        'message': 'Statistics reset successfully',
+        'timestamp': datetime.now().isoformat()
+    })
+
 @app.route('/recent_flows', methods=['GET'])
 def get_recent_flows():
     """Obtener flows recientes"""
@@ -810,6 +839,23 @@ def dashboard():
                     .catch(e => console.error('Error refreshing stats:', e));
             }
             
+            function resetStats() {
+                if (!confirm('¿Estás seguro de que quieres reiniciar todas las estadísticas?')) {
+                    return;
+                }
+                
+                fetch('/reset_stats', {method: 'POST'})
+                    .then(r => r.json())
+                    .then(data => {
+                        alert('✅ Estadísticas reiniciadas exitosamente');
+                        refreshStats();
+                    })
+                    .catch(e => {
+                        alert('❌ Error reiniciando estadísticas: ' + e);
+                        console.error('Error resetting stats:', e);
+                    });
+            }
+            
             // Mapeo de emojis para categorías conocidas
             const categoryEmojis = {
                 'MULTIMEDIA': '📹',
@@ -852,7 +898,11 @@ def dashboard():
             </div>
             
             <div class="section">
-                <h2>Estadísticas</h2>
+                <h2>Estadísticas
+                    <button onclick="resetStats()" style="float: right; background-color: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                        🔄 Reiniciar Estadísticas
+                    </button>
+                </h2>
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3>PCAPs Recibidos</h3>
@@ -871,6 +921,7 @@ def dashboard():
                         <div class="value" id="firewall-count">-</div>
                     </div>
                 </div>
+                <p style="color: #666; font-size: 12px; margin-top: 10px;">ℹ️ El modelo procesa solo los últimos 10 flows por cada batch recibido</p>
             </div>
             
             <div class="section">

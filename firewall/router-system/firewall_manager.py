@@ -191,6 +191,13 @@ def update_categories():
                     'message': f'IPs para categoría "{category}" deben ser una lista'
                 }), 400
         
+        # Marcar como desactivadas las categorías nuevas que vienen del modelo
+        for category in new_categories.keys():
+            if category not in active_categories:
+                # Es una categoría completamente nueva, desactivarla por defecto
+                disabled_categories.add(category)
+                logger.info(f"Nueva categoría '{category}' detectada - desactivada por defecto (debe activarse manualmente)")
+        
         # Actualizar categorías
         active_categories = new_categories
         
