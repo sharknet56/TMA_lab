@@ -139,6 +139,8 @@ sudo ./quick_start.sh
 
 ### 2. System Configuration
 
+**In theory there is no need to configure more aspects, but just in case there are some considerations**
+
 The system configuration is centralized in the `.env` file. You can modify it in two ways:
 
 **Option A: Interactive Manager (Recommended)**
@@ -161,34 +163,6 @@ To safely stop all background processes (Python servers, hostapd, dnsmasq) and r
 ```bash
 cd firewall
 sudo ./stop_all.sh
-```
-
-### 4. Manual Execution (Modular)
-
-If you need to debug specific components, you can run them individually in separate terminals:
-
-**Terminal 1: Start the Model Server**
-*Check which model is active in `.env` and navigate to the corresponding folder (`model_dl`, `model_ml`, or `simulated-model`).*
-
-```bash
-# Example for Deep Learning model
-cd firewall/model_dl
-python model_server.py
-```
-
-**Terminal 2: Start the Router & Capture System**
-*Note: This requires the model server to be running first.*
-
-```bash
-cd firewall/router-system
-sudo python traffic_capture.py
-```
-
-**Terminal 3: Start the Dashboard**
-
-```bash
-cd firewall/router-system
-python dashboard.py
 ```
 
 ---
