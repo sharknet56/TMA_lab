@@ -1,67 +1,68 @@
 # IoT Traffic Analysis
 
-Guía rápida para ejecutar el análisis de tráfico IoT (Flows vs Packets).
+Quick start guide to run IoT traffic analysis (Flows vs Packets).
 
-## Estructura de Carpetas
-El notebook `IoT_Traffic_Analysis.ipynb` debe estar en el mismo directorio que las carpetas de datos del dataset UNSW:
-- `flows/` (Archivos CSV)
-- `pcaps/` (Archivos PCAP)
+## Folder Structure
+The notebook `IoT_Traffic_Analysis.ipynb` must be in the same directory as the UNSW dataset data folders:
+- `flows/` (CSV files)
+- `pcaps/` (PCAP files)
 
-## Instalación y Ejecución
-Se recomienda usar un entorno virtual para aislar las dependencias, **Jupyter lo crea de forma guiada**, pero si no ejecuta:
+## Installation and Execution
+It is recommended to use a virtual environment to isolate dependencies. **Jupyter creates it in a guided way**, but if not, run:
 
 ```bash
-# 1. Crear entorno virtual
+# 1. Create virtual environment
 python3 -m venv venv
 
-# 2. Activar entorno
+# 2. Activate environment
 source venv/bin/activate
 
-# 3. Instalar dependencias
+# 3. Install dependencies
 pip install -r requirements.txt
 ```
 
-Abre el notebook en VS Code o Jupyter y ejecuta las celdas en orden.
+Open the notebook in VS Code or Jupyter and run the cells in order.
 
-### Solución de problemas GPU
-Existe una celda para comprobar el uso de GPU. Si tienes una NVIDIA y `nvidia-smi` funciona pero TensorFlow usa CPU o faltan librerías (ej. `libcudart`, `libcudnn`):
+### GPU Troubleshooting
+There is a cell to check GPU usage. If you have an NVIDIA GPU and `nvidia-smi` works but TensorFlow uses CPU or is missing libraries (e.g. `libcudart`, `libcudnn`):
 
-1. Instala la versión de TensorFlow que incluye las librerías CUDA necesarias:
+1. Install the TensorFlow version that includes necessary CUDA libraries:
    ```bash
    pip install "tensorflow[and-cuda]"
    ```
-2. Reinicia el kernel del notebook y vuelve a ejecutar la celda de comprobación.
+2. Restart the notebook kernel and re-run the check cell.
 
-Ver resultado de la configuración en `image.png`.
+See the configuration result in `image.png`.
 
-### Hardware y parámetros de entrenamiento
+### Hardware and Training Parameters
 Hardware: NVIDIA RTX 2080 && 48GB RAM DDR4 3200MHz
 
-Parámetros usados:
+Parameters used:
 ```text
 DATA_FRAC = 0.1
 CANTIDAD_META = 1000000
 MAX_LEN = 500
 MAX_PKTS_PER_FILE = 10000
+```
 
-###Ejecucion con Scripts###
+### Execution with Scripts
 
-En el directorio hay tres scripts principales:
+There are three main scripts in the directory:
 
-- main_comparacion.py — Orquesta la comparación Flows vs Packets.  
-   Uso típico:
+- main_comparacion.py — Orchestrates the Flows vs Packets comparison.  
+   Typical usage:
    ```bash
    python3 main_comparacion.py
    ```
 
-- script_flows.py — Procesa los CSV de la carpeta `flows/` y genera features/resultados.
+- script_flows.py — Processes CSVs in the `flows/` folder and generates features/results.
    ```bash
    python3 script_flows.py
    ```
 
-- script_pcaps.py — Procesa los archivos PCAP en `pcaps/`, extrae paquetes y features.
+- script_pcaps.py — Processes PCAP files in `pcaps/`, extracts packets and features.
    ```bash
    python3 script_pcaps.py
    ```
 
-Ejecutar desde la raíz del proyecto con el entorno virtual activado (ver sección de instalación).
+Run from the project root with the virtual environment activated (see installation section).
