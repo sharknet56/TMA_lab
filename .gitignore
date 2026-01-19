@@ -17,7 +17,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-
+.env
 # Configuración local
 backups/
 .env
