@@ -4,28 +4,109 @@ This repository contains the implementation of an experimental firewall system p
 
 ## Repository Organization
 
-The project is structured into two main directories distinguishing between the production application and the research phase:
+The project is structured into two main directories distinguishing between the production application (`firewall/`) and the research phase (`models/`).
 
-### 1. `firewall/` (Operational System)
+### Directory Structure
 
-Contains the executable code for the real-time firewall.
+```text
+TMA_lab/
+│
+├── README.md                          # Main project documentation
+│
+├── firewall/                          # Operational firewall system
+│   ├── config_manager.sh              # Script to select active model (ML/DL/Simulated)
+│   ├── init_all.sh                    # Initializes all system components
+│   ├── quick_start.sh                 # Quick launch for the full system
+│   ├── stop_all.sh                    # Stops all processes and restores network rules
+│   ├── test_model_dl.sh               # Test script for the Deep Learning model
+│   ├── requirements.txt               # Python dependencies for the operational system
+│   │
+│   ├── model_dl/                      # Deep Learning Inference Server
+│   │   ├── config.json                # DL server config (port, model path, etc.)
+│   │   ├── model_server.py            # Inference server processing sequential data
+│   │   ├── test_client.py             # Test client to verify communication
+│   │   ├── test_model_loading.py      # Verifies correct model loading
+│   │   ├── README.md                  # DL model specific documentation
+│   │   └── inference/                 # Trained model resources
+│   │       ├── best_model.keras       # Trained Keras model
+│   │       ├── label_encoder.pkl      # Class label encoder
+│   │       ├── model_config.json      # Model architecture configuration
+│   │       ├── classify_pcap.py       # Direct classification from PCAP files
+│   │       └── README.md              # Inference documentation
+│   │
+│   ├── model_ml/                      # Machine Learning Inference Server
+│   │   ├── config.json                # ML server config
+│   │   ├── model_server.py            # Inference server based on flow statistics
+│   │   ├── test_client.py             # Test client
+│   │   ├── test_model_loading.py      # Model loading verification
+│   │   └── README.md                  # ML model documentation
+│   │
+│   ├── simulated-model/               # Simulated Model for Integration Testing
+│   │   ├── config.json                # Dummy model config
+│   │   ├── model_server.py            # Simulated server (random/fixed responses)
+│   │   ├── test_client.py             # Test client
+│   │   └── README.md                  # Simulated model documentation
+│   │
+│   └── router-system/                 # Central Capture and Control System
+│       ├── config.py                  # General config (interfaces, IPs, policies)
+│       ├── traffic_capture.py         # Traffic capture & dispatch to model (flow-based)
+│       ├── traffic_capture_packets.py # Alternative capture based on individual packets
+│       ├── firewall_manager.py        # iptables/ACLs rule management
+│       ├── dashboard.py               # Flask web dashboard for real-time monitoring
+│       ├── router-control.sh          # Manual router system control
+│       ├── router.state               # Persistent system state
+│       ├── install.sh                 # Router dependencies installation script
+│       └── README.md                  # Router system documentation
+│
+└── models/                            # Research & Training Directory
+    │
+    ├── DL-Alberto/                    # Deep Learning Experiments (Alberto)
+    │   └── [Jupyter Notebooks]        # Packet-level analysis, Time Windows, Bursts
+    │
+    ├── DL-Oscar/                      # Deep Learning Experiments (Oscar)
+    │   └── [Jupyter Notebooks]        # Multi-dataset generalization strategies, UNSW tests
+    │
+    └── ML-David/                      # Machine Learning Experiments (David)
+        └── [Jupyter Notebooks]        # Random Forest, XGBoost, Flow statistics
+```
 
-* **`router-system/`**: Handles traffic capture (`traffic_capture.py`), the web dashboard, and interaction with system `iptables` or ACLs.
-* **`model_dl/` & `model_ml/**`: dedicated folders for hosting the Deep Learning and Machine Learning inference engines (servers).
-* **`simulated-model/`**: A lightweight dummy model for integration testing.
-* **Scripts (`*.sh`)**: Automation scripts for initialization, configuration, and shutdown.
+### Key Components Description
 
-### 2. `models/` (Research & Training)
+#### Operational System (`firewall/`)
 
-Contains the Jupyter Notebooks used for data analysis, feature extraction, and model training.
+**Automation Scripts:**
+- `quick_start.sh`: Main entry point. Detects the active environment and launches all components.
+- `config_manager.sh`: Interactive interface to switch between ML/DL/Simulated backends.
+- `stop_all.sh`: Safely cleans up processes and firewall rules.
 
-* **`DL-Alberto/`**: Deep Learning experiments focusing on Packet-level analysis, Time Windows, and Burst aggregation.
-* **`DL-Oscar/`**: Multi-dataset generalization strategies and specific tests on the UNSW dataset.
-* **`ML-David/`**: Baseline Machine Learning implementations (Random Forest/XGBoost) on flow statistics.
+**Model Servers:**
+- Each folder (`model_dl/`, `model_ml/`, `simulated-model/`) contains an independent server listening on a TCP socket.
+- They receive pre-processed data and return IoT device classifications.
+- `config.json` defines the port, model path, and inference parameters.
+
+**Router System:**
+- `traffic_capture.py`: Captures packets in real-time, groups them into flows, and sends features to the model.
+- `firewall_manager.py`: Translates model decisions into `iptables` rules by MAC address.
+- `dashboard.py`: Web interface (Flask) to visualize detected devices, classifications, and firewall actions.
+
+#### Research (`models/`)
+
+Contains the Jupyter Notebooks used for:
+- Dataset exploration (CIC-IoT, UNSW, custom lab data).
+- Feature engineering (statistical flows, packet time-series).
+- ML/DL model training and evaluation.
+- Exporting final models to the `firewall/` directory.
 
 ---
 
 ## Installation & Requirements
+
+**Note about the test environment:** This project was tested with a USB Wi‑Fi adapter that creates two virtual network interfaces: one with Internet access and another configured as an access point (AP). Some utilities assume this setup; if your hardware or network layout differs, adjust the network configuration.
+A utility script to assist with network interface configuration is provided at firewall/setup_interfaces.sh. Depending on the hardware and network topology in use, the default settings in this script may require modification; review and adapt the configuration to match your environment.
+```bash
+cd firewall
+sudo ./setup_interfaces.sh
+```
 
 The firewall requires **Python 3.10+** and administrative privileges (root/sudo) to capture network traffic and modify firewall rules.
 
@@ -34,21 +115,22 @@ The firewall requires **Python 3.10+** and administrative privileges (root/sudo)
 cd firewall
 ```
 
-2. Install the necessary dependencies:
+2. **First Time Installation (Initialization):**
+   Run the initialization script to install dependencies, configure the router settings, and set up the environment variables.
 ```bash
-pip install -r requirements.txt
+sudo ./init_all.sh
 ```
-
+   *This will automatically copy `.env.example` to `.env` if it doesn't exist.*
 
 ---
 
 ## Usage Instructions
 
-The system is designed to run as a modular architecture where the **Router/Capture System** and the **Model Server** run as separate processes communicating via sockets.
+The system is designed to be easy to manage via automated scripts, but also allows for modular execution.
 
-### 1. Quick Start (Recommended)
+### 1. Quick Start (Daily Use)
 
-The easiest way to launch the full system is using the automated shell script. This script detects the environment and launches the Traffic Capture, the Model Server, and the Dashboard.
+To start or restart the full system (Traffic Capture + Model Server + Dashboard) using the current configuration:
 
 ```bash
 cd firewall
@@ -57,19 +139,36 @@ sudo ./quick_start.sh
 
 ### 2. System Configuration
 
-To switch between the Machine Learning (ML), Deep Learning (DL), or Simulated backends, use the configuration manager before starting the system:
+The system configuration is centralized in the `.env` file. You can modify it in two ways:
 
+**Option A: Interactive Manager (Recommended)**
+Use the configuration script to switch between models (ML, DL, Simulated) and adjust network settings:
 ```bash
 ./config_manager.sh
 ```
 
-*Follow the on-screen prompts to select the active model architecture.*
+**Option B: Manual Edit**
+Edit the environment file directly:
+```bash
+nano .env
+```
+*Key variables: `MODEL_TYPE` (ml_flows, dl_packets, simulated_flows), `WIFI_SSID`, `WIFI_PASSWORD`.*
 
-### 3. Manual Execution (Modular)
+### 3. Stopping the System
+
+To safely stop all background processes (Python servers, hostapd, dnsmasq) and restore network rules:
+
+```bash
+cd firewall
+sudo ./stop_all.sh
+```
+
+### 4. Manual Execution (Modular)
 
 If you need to debug specific components, you can run them individually in separate terminals:
 
 **Terminal 1: Start the Model Server**
+*Check which model is active in `.env` and navigate to the corresponding folder (`model_dl`, `model_ml`, or `simulated-model`).*
 
 ```bash
 # Example for Deep Learning model
@@ -91,108 +190,6 @@ sudo python traffic_capture.py
 cd firewall/router-system
 python dashboard.py
 ```
-
-### 4. Stopping the System
-
-To safely stop all background processes and restore network rules:
-
-```bash
-cd firewall
-sudo ./stop_all.sh
-```
-
----
-
-## Estructura Detallada del Proyecto
-
-```
-TMA_lab/
-│
-├── README.md                          # Documentación principal del proyecto
-│
-├── firewall/                          # Sistema operacional del firewall
-│   ├── config_manager.sh              # Script para seleccionar el modelo activo (ML/DL/Simulado)
-│   ├── init_all.sh                    # Inicializa todos los componentes del sistema
-│   ├── quick_start.sh                 # Lanzamiento rápido del sistema completo
-│   ├── stop_all.sh                    # Detiene todos los procesos y restaura reglas de red
-│   ├── test_model_dl.sh               # Script de prueba para el modelo de Deep Learning
-│   ├── requirements.txt               # Dependencias Python del sistema operacional
-│   │
-│   ├── model_dl/                      # Servidor de inferencia Deep Learning
-│   │   ├── config.json                # Configuración del servidor DL (puerto, modelo, etc.)
-│   │   ├── model_server.py            # Servidor de inferencia que procesa datos secuenciales
-│   │   ├── test_client.py             # Cliente de prueba para verificar comunicación
-│   │   ├── test_model_loading.py      # Verifica la carga correcta del modelo
-│   │   ├── README.md                  # Documentación específica del modelo DL
-│   │   └── inference/                 # Recursos del modelo entrenado
-│   │       ├── best_model.keras       # Modelo Deep Learning entrenado (formato Keras)
-│   │       ├── label_encoder.pkl      # Codificador de etiquetas de clases
-│   │       ├── model_config.json      # Configuración de arquitectura del modelo
-│   │       ├── classify_pcap.py       # Clasificación directa desde archivos PCAP
-│   │       └── README.md              # Documentación de inferencia
-│   │
-│   ├── model_ml/                      # Servidor de inferencia Machine Learning
-│   │   ├── config.json                # Configuración del servidor ML
-│   │   ├── model_server.py            # Servidor de inferencia basado en flujos estadísticos
-│   │   ├── test_client.py             # Cliente de prueba
-│   │   ├── test_model_loading.py      # Verificación de carga del modelo
-│   │   └── README.md                  # Documentación del modelo ML
-│   │
-│   ├── simulated-model/               # Modelo simulado para pruebas de integración
-│   │   ├── config.json                # Configuración del modelo dummy
-│   │   ├── model_server.py            # Servidor simulado (respuestas aleatorias/fijas)
-│   │   ├── test_client.py             # Cliente de prueba
-│   │   └── README.md                  # Documentación del modelo simulado
-│   │
-│   └── router-system/                 # Sistema central de captura y control
-│       ├── config.py                  # Configuración general (interfaces, IPs, políticas)
-│       ├── traffic_capture.py         # Captura de tráfico y envío al modelo (basado en flujos)
-│       ├── traffic_capture_packets.py # Captura alternativa basada en paquetes individuales
-│       ├── firewall_manager.py        # Gestión de reglas iptables/ACLs
-│       ├── dashboard.py               # Dashboard web Flask para monitoreo en tiempo real
-│       ├── router-control.sh          # Control manual del sistema del router
-│       ├── router.state               # Estado persistente del sistema
-│       ├── install.sh                 # Script de instalación de dependencias del router
-│       └── README.md                  # Documentación del sistema router
-│
-└── models/                            # Carpeta de investigación y entrenamiento
-    │
-    ├── DL-Alberto/                    # Experimentos de Deep Learning (Alberto)
-    │   └── [Notebooks Jupyter]        # Análisis a nivel de paquetes, ventanas temporales, bursts
-    │
-    ├── DL-Oscar/                      # Experimentos de Deep Learning (Oscar)
-    │   └── [Notebooks Jupyter]        # Generalización multi-dataset, pruebas UNSW
-    │
-    └── ML-David/                      # Experimentos de Machine Learning (David)
-        └── [Notebooks Jupyter]        # Random Forest, XGBoost, estadísticas de flujos
-```
-
-### Descripción de Componentes Clave
-
-#### Sistema Operacional (`firewall/`)
-
-**Scripts de Automatización:**
-- `quick_start.sh`: Punto de entrada principal. Detecta el modelo activo y lanza todos los componentes.
-- `config_manager.sh`: Interfaz interactiva para cambiar entre backends ML/DL/Simulado.
-- `stop_all.sh`: Limpieza segura de procesos y reglas de firewall.
-
-**Servidores de Modelos:**
-- Cada carpeta (`model_dl/`, `model_ml/`, `simulated-model/`) contiene un servidor independiente que escucha en un socket TCP.
-- Reciben datos preprocesados y devuelven clasificaciones de dispositivos IoT.
-- `config.json` define puerto, ruta al modelo y parámetros de inferencia.
-
-**Sistema Router:**
-- `traffic_capture.py`: Captura paquetes en tiempo real, los agrupa en flujos y envía características al modelo.
-- `firewall_manager.py`: Traduce decisiones del modelo en reglas iptables por dirección MAC.
-- `dashboard.py`: Interfaz web (Flask) para visualizar dispositivos detectados, clasificaciones y acciones del firewall.
-
-#### Investigación (`models/`)
-
-Contiene los Jupyter Notebooks utilizados para:
-- Exploración de datasets (CIC-IoT, UNSW, laboratorio propio).
-- Ingeniería de características (flujos estadísticos, series temporales de paquetes).
-- Entrenamiento y evaluación de modelos ML/DL.
-- Exportación de modelos finales al directorio `firewall/`.
 
 ---
 
