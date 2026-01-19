@@ -34,7 +34,7 @@
     "debug": false
   },
   "firewall": {
-    "url": "http://192.168.50.1:5000",
+    "url": "http://localhost:5000",
     "enabled": true
   }
 }

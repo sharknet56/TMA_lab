@@ -1,55 +1,94 @@
-# Servidor de Clasificación IoT - Random Forest
+# Machine Learning Model - Random Forest
 
-Este servidor utiliza un modelo Random Forest entrenado para clasificar dispositivos IoT en 4 macro-categorías basándose en patrones de tráfico de red.
+Random Forest-based Machine Learning model server for IoT device classification through network flow analysis.
 
-##  Características
+## Description
 
-- **Modelo**: Random Forest Classifier
-- **Categorías**: 
-  -  **MULTIMEDIA**: Cámaras, Video, Audio (alto ancho de banda)
-  -  **SMART_CONTROLS**: Plugs, Lighting, Sensores de movimiento
-  - 🌡️ **SENSORS**: Weather, Air Quality, Sleep (bajo tráfico)
-  -  **COMPUTING**: Router, Smartphone, PC
+This model uses Random Forest to classify network traffic in real-time. It processes aggregated flows (connection statistics) with 79 features calculated by CICFlowMeter and determines which devices should be blocked based on their behavior.
 
-##  Instalación
+## Features
 
-### 1. Instalar dependencias
+- Real-time network traffic classification
+- Model trained with IoT device datasets
+- Processing of flows with 79 features
+- REST API for integration with the capture system
+- Web interface for monitoring
+
+## Configuration
+
+### Environment Variables
+
+The server uses the following variables defined in `.env`:
 
 ```bash
+MODEL_ML_PORT=5001             # Model server port
+FIREWALL_PORT=5000             # Firewall manager port
+MODEL_ML_LAST_FLOWS=10         # Number of recent flows to process
+```
+
+### Model Files
+
+The model requires the following PKL (pickle) files in the `model_ml/` directory:
+
+- `model.pkl`: Trained Random Forest model
+- `scaler.pkl`: Feature normalizer
+- `feature_columns.pkl`: List of feature columns
+
+## Installation
+
+### Create Virtual Environment
+
+```bash
+cd model_ml
+python3 -m venv ml
+source ml/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Generar el modelo
-
-Si aún no has generado los archivos del modelo, ejecuta el notebook `IntentoFinal.ipynb`:
+### Verify Installation
 
 ```bash
-jupyter notebook IntentoFinal.ipynb
+python3 test_model_loading.py
 ```
 
-Esto generará:
-- `model.pkl` - Modelo entrenado (Random Forest)
-- `encoder.pkl` - Encoder de etiquetas
-
-**Nota**: El servidor carga automáticamente las categorías desde el encoder, por lo que no es necesario configurarlas manualmente.
-
-### 3. Iniciar el servidor
-
-```bash
-python model_server.py
-```
-
-El servidor estará disponible en `http://localhost:5001`
-
-##  API Endpoints
+## API Endpoints
 
 ### Health Check
 ```bash
 GET /health
 ```
-Verifica el estado del servidor y del modelo.
+Checks the server status and if the model is loaded.
 
-### Recibir Flows
+Response:
+```json
+{
+  "status": "ok",
+  "model_status": "loaded",
+  "model_classes": ["MULTIMEDIA", "SMART_CONTROLS", "SENSORS", "COMPUTING"],
+  "timestamp": "2026-01-19T10:30:00",
+  "stats": {...}
+}
+```
+
+### Receive PCAP
+```bash
+POST /pcap
+Content-Type: multipart/form-data
+
+file: traffic.pcap
+```
+
+Receives PCAP files from the capture system (compatibility endpoint).
+
+Response:
+```json
+{
+  "status": "received",
+  "message": "PCAP file received"
+}
+```
+
+### Receive Flows
 ```bash
 POST /flows
 Content-Type: application/json
@@ -58,139 +97,344 @@ Content-Type: application/json
   "flows": [
     {
       "src_ip": "192.168.50.10",
-      "dst_ip": "192.168.50.1",
-      "src_port": 45231,
-      "dst_port": 80,
+      "dst_ip": "8.8.8.8",
+      "src_port": 54321,
+      "dst_port": 443,
       "protocol": 6,
-      "packets": 150,
-      "bytes": 45000,
-      "duration": 10.5
+      "packets": 10,
+      "bytes": 1500,
+      "duration": 1.5
     }
   ]
 }
 ```
 
-### Predicción Directa
+Receives flows from the capture system, processes them with the model, and sends categories to the firewall.
+
+Response:
+```json
+{
+  "status": "processed",
+  "flows_analyzed": 10,
+  "predictions": ["normal", "malware", "normal"],
+  "blocked_ips": ["192.168.50.15"]
+}
+```
+
+### Manual Prediction
 ```bash
 POST /predict
 Content-Type: application/json
 
 {
-  "packets": 100,
-  "bytes": 50000,
-  ...
+  "flows": [...]
 }
 ```
 
-### Estadísticas
+Performs prediction without updating the firewall.
+
+Response:
+```json
+{
+  "predictions": ["normal", "malware"],
+  "classes": [0, 1]
+}
+```
+
+### Statistics
 ```bash
 GET /stats
 ```
-Obtiene estadísticas detalladas del servidor.
 
-### Flows Recientes
+Returns detailed model statistics.
+
+Response:
+```json
+{
+  "stats": {
+    "flows_received": 150,
+    "predictions_made": 150,
+    "firewall_updates": 12,
+    "last_flow": "2026-01-19T10:30:00"
+  },
+  "devices": {
+    "192.168.50.10": {
+      "main_category": "MULTIMEDIA",
+      "total_predictions": 15,
+      "percentages": {"MULTIMEDIA": 100.0}
+    }
+  },
+  "local_network": "192.168.50.0/24",
+  "total_devices": 1,
+  "categories_summary": {...},
+  "model_info": {...}
+}
+```
+
+### Get Devices
+```bash
+GET /devices
+```
+
+Returns detailed information about all detected devices.
+
+Response:
+```json
+{
+  "devices": [
+    {
+      "ip": "192.168.50.10",
+      "main_category": "MULTIMEDIA",
+      "total_predictions": 15,
+      "percentages": {"MULTIMEDIA": 100.0}
+    }
+  ],
+  "total": 1
+}
+```
+
+### Get Device Info
+```bash
+GET /device/<ip>
+```
+
+Returns detailed information about a specific device.
+
+Response:
+```json
+{
+  "ip": "192.168.50.10",
+  "total_predictions": 15,
+  "main_category": "MULTIMEDIA",
+  "percentages": {"MULTIMEDIA": 100.0}
+}
+```
+
+### Recent Flows
 ```bash
 GET /recent_flows?limit=20
 ```
-Obtiene los últimos flows procesados.
+Gets the latest processed flows.
 
-### Dashboard Web
+### Web Interface
 ```bash
 GET /
 ```
-Dashboard web interactivo con estadísticas en tiempo real.
+Interactive web dashboard with real-time statistics.
 
-##  Testing
+### Clear Predictions
+```bash
+POST /clear_predictions
+```
 
-Usa el cliente de prueba para verificar el funcionamiento:
+Clears all device predictions and processed flows cache.
+
+Response:
+```json
+{
+  "status": "success",
+  "message": "All predictions cleared",
+  "timestamp": "2026-01-19T10:30:00"
+}
+```
+
+### Reset Statistics
+```bash
+POST /reset_stats
+```
+
+Resets all global server statistics.
+
+Response:
+```json
+{
+  "status": "success",
+  "message": "Statistics reset successfully",
+  "timestamp": "2026-01-19T10:30:00"
+}
+```
+
+## Model Features
+
+The model processes 79 features per flow, including:
+
+### Flow Statistics
+- Flow duration
+- Number of packets (forward/backward)
+- Number of bytes (forward/backward)
+- Packet and byte rate
+
+### Packet Characteristics
+- Average, minimum, maximum size
+- Standard deviation of size
+- Variance of size
+
+### Protocol Information
+- Protocol (TCP/UDP/ICMP)
+- Source and destination ports
+- TCP flags
+
+### Temporal Characteristics
+- Inter-arrival time (IAT)
+- Active/idle time
+- Segment duration
+
+### Window Characteristics
+- TCP window size
+- Window statistics
+
+## Classification Classes
+
+The model classifies devices into the following categories:
+
+- **MULTIMEDIA**: Cameras, Video, Audio devices
+- **SMART_CONTROLS**: Smart Plugs, Lighting, Motion sensors
+- **SENSORS**: Weather stations, Air Quality, Sleep sensors
+- **COMPUTING**: Routers, Smartphones, PCs
+- **ENVIRONMENT_SENSING**: Environmental monitoring devices
+- **HOME_AUTOMATION**: Home automation hubs
+- **NETWORK_CORE**: Core network devices
+- **PERSONAL_DEVICES**: Personal computing devices
+- **SMART_APPLIANCES**: Smart home appliances
+- **VIDEO_STREAMING**: Video streaming devices
+
+## Usage
+
+### Start the Server
+
+```bash
+# With virtual environment
+cd model_ml
+source ml/bin/activate
+python3 model_server.py
+```
+
+### With Environment Variables
+
+```bash
+MODEL_ML_PORT=5001 FIREWALL_PORT=5000 python3 model_server.py
+```
+
+### System Integration
+
+The server starts automatically with:
+```bash
+sudo ./quick_start.sh
+```
+when `MODEL_TYPE=ml_flows` in `.env`.
+
+## Testing
+
+Use the test client to verify functionality:
 
 ```bash
 python test_client.py
 ```
 
-Este script ejecutará varios tests:
--  Health check
--  Dashboard disponibilidad
--  Estadísticas del servidor
--  Clasificación de flows simulados
--  Predicción directa
+This script will run several tests:
+- Health check
+- Dashboard availability
+- Server statistics
+- Classification of simulated flows
+- Direct prediction
 
-##  Estructura del Proyecto
+## Logs
 
+The server logs events in:
 ```
-5_dataset_model/
-├── IntentoFinal.ipynb          # Notebook de entrenamiento
-├── model_server.py             # Servidor Flask
-├── test_client.py              # Cliente de prueba
-├── requirements.txt            # Dependencias
-├── config.json                 # Configuración
-├── README.md                   # Este archivo
-├── iot_device_classifier_rf.pkl  # Modelo entrenado
-├── label_encoder.pkl           # Encoder de etiquetas
-└── archive/                    # Datasets de entrenamiento
-    ├── CIC_IoT_Part_1.csv
-    ├── CIC_IoT_Part_2.csv
-    ├── Lab_1.csv
-    ├── Lab_2.csv
-    └── UNSW_IoT_Traces.csv
+logs/model_ml.log
 ```
 
-##  Configuración
+### Log Levels
+- INFO: Normal operations
+- WARNING: Warnings (model not loaded, etc.)
+- ERROR: Processing errors
 
-Edita `config.json` para cambiar:
-- Puerto del servidor
-- URL del firewall
-- Configuración del modelo
+## Dependencies
 
-##  Integración con Firewall
-
-El servidor puede enviar automáticamente las categorías clasificadas al firewall:
-
-```python
-FIREWALL_URL = 'http://192.168.50.1:5000'
+```
+scikit-learn
+pandas
+numpy
+Flask
+requests
 ```
 
-Las categorías se mapean a niveles de amenaza:
-- `MULTIMEDIA` → `high_bandwidth`
-- `SMART_CONTROLS` → `iot_control`
-- `SENSORS` → `low_traffic`
-- `COMPUTING` → `general_device`
+Install with:
+```bash
+pip install -r requirements.txt
+```
 
-##  Métricas del Modelo
+## Processing Pipeline
 
-El modelo fue entrenado con validación cruzada 5-fold:
-- **Accuracy promedio**: ~XX%
-- **F1-Score (weighted)**: ~XX%
-- **F1-Score (macro)**: ~XX%
+1. **Reception**: The server receives flows from `traffic_capture.py`
+2. **Validation**: The 79 required features are validated
+3. **Normalization**: The scaler is applied to normalize data
+4. **Prediction**: The Random Forest model classifies each flow
+5. **Aggregation**: IPs with malicious behavior are identified
+6. **Update**: Categories are sent to the firewall manager
 
-(Ver resultados completos en el notebook)
 
-##  Solución de Problemas
+## Project Structure
 
-### Error: "Model not loaded"
-Verifica que existen los archivos:
-- `iot_device_classifier_rf.pkl`
-- `label_encoder.pkl`
+```
+model_ml/
+├── model_server.py             # Flask server
+├── test_client.py              # Test client
+├── test_model_loading.py       # Model loading test
+├── config.json                 # Configuration
+├── README.md                   # This file
+├── model.pkl                   # Trained model
+├── scaler.pkl                  # Normalizer
+├── feature_columns.pkl         # Feature columns
+```
 
-### Error: "Número de features incorrecto"
-Los flows deben tener las mismas features que el dataset de entrenamiento.
+## Troubleshooting
 
-### Error al conectar con firewall
-Verifica que el firewall está ejecutándose en la URL configurada.
+### Model does not load
+Verify that the PKL files exist:
+```bash
+ls -la model_ml/*.pkl
+```
 
-##  Notas
+### Feature error
+Ensure the capture system sends the correct 79 features. Check logs:
+```bash
+tail -f logs/model_ml.log
+```
 
-- El servidor está optimizado para recibir flows en formato similar al dataset de entrenamiento
-- Se requiere ajustar el procesamiento de flows según el formato específico de tu sistema de captura
-- El dashboard web se actualiza automáticamente cada 5 segundos
+### Connection error with firewall
+Verify that the firewall manager is active:
+```bash
+curl http://localhost:5000/health
+```
 
-##  Desarrollo
+### Insufficient memory
+Adjust `MODEL_ML_LAST_FLOWS` to a lower value in `.env`.
 
-Para modificar el modelo:
-1. Edita el notebook `IntentoFinal.ipynb`
-2. Re-entrena el modelo
-3. Reinicia el servidor
+## Optimization
 
-##  Licencia
+### Buffer Adjustment
+Configure `MODEL_ML_LAST_FLOWS` according to available resources:
+- More flows = Higher accuracy, more memory
+- Fewer flows = Lower accuracy, less memory
 
-Este proyecto es parte del laboratorio TMA.
+### Update Frequency
+Adjust `FLOW_SEND_INTERVAL` in `.env` to control the sending frequency to the model.
+
+## Firewall Integration
+
+The server automatically sends the classified categories to the firewall:
+
+```bash
+FIREWALL_URL = http://localhost:5000
+```
+
+The categories are mapped to threat levels, and the firewall updates the corresponding iptables rules.
+
+## Notes
+
+- The model requires complete flows with all features
+- Predictions are automatically sent to the firewall
+- The server maintains statistics in memory
+- Only compatible with `flows` capture mode

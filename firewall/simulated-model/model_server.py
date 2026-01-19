@@ -14,8 +14,9 @@ import os
 # Configuración
 app = Flask(__name__)
 
-# Configuración del firewall
-FIREWALL_PORT = os.getenv('FIREWALL_PORT', '5000')
+# Cargar configuración desde variables de entorno
+MODEL_SIMULATED_PORT = int(os.getenv('MODEL_SIMULATED_PORT', '8000'))
+FIREWALL_PORT = int(os.getenv('FIREWALL_PORT', '5000'))
 FIREWALL_URL = f'http://localhost:{FIREWALL_PORT}'
 
 # Configuración de logging
@@ -729,12 +730,15 @@ def clear_all():
 
 if __name__ == '__main__':
     logger.info("=== Modelo ML Simulado iniciado ===")
+    logger.info(f"Puerto del servidor: {MODEL_SIMULATED_PORT}")
+    logger.info(f"Puerto del firewall: {FIREWALL_PORT}")
+    logger.info(f"URL del firewall: {FIREWALL_URL}")
     logger.info(f"Configuración inicial de amenazas:")
     for category, ips in SIMULATED_THREATS.items():
         logger.info(f"  {category}: {len(ips)} IPs")
     logger.info("")
-    logger.info("Interfaz web disponible en: http://localhost:8000")
+    logger.info(f"Interfaz web disponible en: http://localhost:{MODEL_SIMULATED_PORT}")
     logger.info("")
     
-    # Iniciar servidor en puerto 8000
-    app.run(host='0.0.0.0', port=8000, debug=False)
+    # Iniciar servidor usando el puerto de las variables de entorno
+    app.run(host='0.0.0.0', port=MODEL_SIMULATED_PORT, debug=False)
