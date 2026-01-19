@@ -181,11 +181,16 @@ setup_dnsmasq() {
         cp /etc/dnsmasq.conf "$BACKUP_DIR/dnsmasq.conf.bak"
     fi
     
+    # Asegurar que las variables están definidas
+    DHCP_START="${AP_DHCP_START:-192.168.50.10}"
+    DHCP_END="${AP_DHCP_END:-192.168.50.100}"
+    AP_IP="${AP_GATEWAY:-192.168.50.1}"
+    
     cat > /etc/dnsmasq.conf <<EOF
 # Router mode configuration
 interface=$AP_IFACE
 bind-interfaces
-dhcp-range=$DHCP_RANGE,255.255.255.0,24h
+dhcp-range=$DHCP_START,$DHCP_END,255.255.255.0,24h
 dhcp-option=3,$AP_IP
 dhcp-option=6,8.8.8.8,8.8.4.4
 server=8.8.8.8
